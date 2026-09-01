@@ -1,6 +1,6 @@
 // Simulate tab: sliders for the classic parameterized channel + shared viz.
 import { DEFAULT_PARAMS, CAPS, derived, violations, clampParams } from './geometry.js';
-import { MDOT_MIN, MDOT_MAX, hzFromMdot } from './units.js';
+import { MDOT_MIN, MDOT_MAX, MDOT_CAL_MAX, hzFromMdot } from './units.js';
 import { renderField, drawProfilePlot, drawSpark, statsHtml } from './viz.js';
 
 const SLIDERS = [
@@ -132,7 +132,8 @@ function updateReadouts() {
   ro.textContent =
     `length ${d.totalLen.toFixed(1)} / ${CAPS.totalLenMM} mm · ` +
     `exit ${d.exitHeight.toFixed(1)} / ${CAPS.exitHeightMM} mm · ` +
-    `${hzFromMdot(mdot).toFixed(1)} Hz`;
+    `${hzFromMdot(mdot).toFixed(1)} Hz` +
+    (mdot > MDOT_CAL_MAX ? ' (beyond meter cal.)' : '');
 }
 
 function reconfigure() {

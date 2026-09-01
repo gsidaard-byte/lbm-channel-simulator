@@ -23,6 +23,7 @@ export function init(h) {
         <option value="mid" selected>6.9 g/s (mid)</option>
         <option value="low">2.3 g/s (low)</option>
         <option value="high">11.5 g/s (high)</option>
+        <option value="max">60 g/s (max)</option>
         <option value="avg3">average of 3</option>
       </select><span></span></div>
     <div class="ctl"><label>evals</label>
@@ -53,7 +54,8 @@ export function init(h) {
 
 function selectedFlows() {
   const v = document.getElementById('opt-flow').value;
-  return { mid: [6.9e-3], low: [2.3e-3], high: [11.5e-3], avg3: [2.3e-3, 6.9e-3, 11.5e-3] }[v];
+  return { mid: [6.9e-3], low: [2.3e-3], high: [11.5e-3], max: [60e-3],
+           avg3: [2.3e-3, 6.9e-3, 11.5e-3] }[v];
 }
 
 function toggleRun() {

@@ -1,7 +1,7 @@
 // Advanced tab: flow-conditioning design (bend vanes, cambered rows, screens).
 // Inlet, exit, and total length are fixed; uniformity comes from conditioning.
 import { ADV_DEFAULTS, advClamp } from './geometry-adv.js';
-import { MDOT_MIN, MDOT_MAX, hzFromMdot } from './units.js';
+import { MDOT_MIN, MDOT_MAX, MDOT_CAL_MAX, hzFromMdot } from './units.js';
 import { renderField, drawProfilePlot, drawSpark, statsHtml } from './viz.js';
 
 const SLIDERS = [
@@ -141,7 +141,8 @@ function updateReadouts() {
     ribs = ` · print: scr1 ${dims(params.sc1s, params.sc1g)} · scr2 ${dims(params.sc2s, params.sc2g)} mm`;
   }
   document.getElementById('adv-readout').textContent =
-    `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz${ribs}`;
+    `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz` +
+    (mdot > MDOT_CAL_MAX ? ' (beyond meter cal.)' : '') + ribs;
 }
 
 function reconfigure() {

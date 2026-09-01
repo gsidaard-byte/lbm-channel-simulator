@@ -6,7 +6,9 @@ export const NU = 1.0e-6;     // m^2/s
 // (6 Hz, 2.3e-3 kg/s) and (42 Hz, 11.5e-3 kg/s).
 const CAL_SLOPE = (11.5e-3 - 2.3e-3) / (42 - 6);
 const CAL_INTERCEPT = 2.3e-3 - CAL_SLOPE * 6;
-export const MDOT_MIN = 2.3e-3, MDOT_MAX = 11.5e-3;
+export const MDOT_MIN = 2.3e-3, MDOT_MAX = 60e-3;
+// upper end of the flow-meter calibration; beyond it the Hz value is extrapolated
+export const MDOT_CAL_MAX = 11.5e-3;
 
 export function hzFromMdot(mdot) { return (mdot - CAL_INTERCEPT) / CAL_SLOPE; }
 export function mdotFromHz(hz) { return CAL_SLOPE * hz + CAL_INTERCEPT; }
