@@ -69,8 +69,8 @@ test('integration: baseline geometry runs stable and conserves mass', async () =
   sim.step(10000);                // average over several flapping periods
   ok(sim.isStable(), 'stable during averaging');
   const avg = sim.timeAveraged();
-  ok(Math.abs(avg.out - avg.in) / avg.in < 0.05,
-     `mass imbalance in=${avg.in} out=${avg.out}`);
+  ok(Math.abs(avg.outMass - avg.inMass) / avg.inMass < 0.05,
+     `mass imbalance in=${avg.inMass} out=${avg.outMass}`);
   const u = uniformity(avg.u);
   ok(u > 0.1 && u <= 1, `uniformity ${u}`);
 });

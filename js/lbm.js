@@ -40,9 +40,11 @@ export class LBM {
     this.g = new Float64Array(nx * ny * 9);
     this.steps = 0;
     // running time-averages at the probe plane (the flow is quasi-periodic:
-    // the jet flaps in the wide diffuser, so instantaneous profiles oscillate)
+    // the jet flaps in the wide diffuser, so instantaneous profiles oscillate).
+    // Volume flux (sum u) monitors the pump; MASS flux (sum rho*u) is the
+    // conserved quantity — they differ by the pressure drop across screens.
     this.avgU = new Float64Array(ny);
-    this.avgIn = 0; this.avgOut = 0; this.avgCount = 0;
+    this.avgInVol = 0; this.avgInMass = 0; this.avgOutMass = 0; this.avgCount = 0;
     this.inletCells = []; this.outletCells = [];
     for (let i = 0; i < nx * ny; i++) {
       if (mask[i] === INLET) this.inletCells.push(i);
@@ -121,13 +123,13 @@ export class LBM {
 
   _accumulate() {
     const { nx, ny, mask, f, probeCol, avgU } = this;
-    let fin = 0, fout = 0;
+    let finV = 0, finM = 0, foutM = 0;
     for (let x = 0; x < nx; x++) {
       if (mask[x] !== INLET || mask[nx + x] === SOLID) continue;
       const b = (nx + x) * 9;
       let r = 0, my = 0;
       for (let i = 0; i < 9; i++) { r += f[b + i]; my += f[b + i] * CY[i]; }
-      fin += my / r;
+      finV += my / r; finM += my;
     }
     for (let y = 0; y < ny; y++) {
       const c = y * nx + probeCol;
@@ -135,13 +137,16 @@ export class LBM {
       const b = c * 9;
       let r = 0, mx = 0;
       for (let i = 0; i < 9; i++) { r += f[b + i]; mx += f[b + i] * CX[i]; }
-      const u = mx / r;
-      avgU[y] += u; fout += u;
+      avgU[y] += mx / r; foutM += mx;
     }
-    this.avgIn += fin; this.avgOut += fout; this.avgCount++;
+    this.avgInVol += finV; this.avgInMass += finM; this.avgOutMass += foutM;
+    this.avgCount++;
   }
 
-  resetAverage() { this.avgU.fill(0); this.avgIn = 0; this.avgOut = 0; this.avgCount = 0; }
+  resetAverage() {
+    this.avgU.fill(0);
+    this.avgInVol = 0; this.avgInMass = 0; this.avgOutMass = 0; this.avgCount = 0;
+  }
 
   // time-averaged exit profile and fluxes since the last resetAverage()
   timeAveraged() {
@@ -153,7 +158,8 @@ export class LBM {
       ys.push(y); us.push(avgU[y] / n);
     }
     return { y: Int32Array.from(ys), u: Float32Array.from(us),
-             in: this.avgIn / n, out: this.avgOut / n, samples: avgCount };
+             inVol: this.avgInVol / n, inMass: this.avgInMass / n,
+             outMass: this.avgOutMass / n, samples: avgCount };
   }
 
   _applyInlet(g) {

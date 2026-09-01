@@ -104,11 +104,15 @@ function postFrame(now) {
   }
   const inst = sim.exitProfile();
   const avg = averaging ? sim.timeAveraged() : null;
-  const massErr = avg && avg.in > 1e-9 ? Math.abs(avg.out - avg.in) / avg.in : 0;
-  // measured inlet mass flow (time-averaged lattice flux vs the imposed target)
+  // conservation check on MASS flux (volume flux legitimately drops across screens)
+  const massErr = avg && avg.inMass > 1e-9 ? Math.abs(avg.outMass - avg.inMass) / avg.inMass : 0;
+  // measured inlet flow (volume-flux based: monitors the pump setting)
   const uInLat = uPhysIn * lp.dt / (cfg.dxMM / 1000);
   const mdotMeasured = avg && inletCount > 0
-    ? cfg.mdot * (avg.in / (uInLat * inletCount)) : null;
+    ? cfg.mdot * (avg.inVol / (uInLat * inletCount)) : null;
+  // pressure drop held by screens/vanes: rho_inlet - 1 in lattice units -> Pa
+  const dpPa = avg && avg.inVol > 1e-9
+    ? Math.max(0, (avg.inMass / avg.inVol - 1)) / 3 * 1000 * u2phys * u2phys : null;
   const dtWall = (now - t0) / 1000;
   const stepsPerSec = dtWall > 0.05 ? (sim.steps - stepCount0) / dtWall : 0;
   stepCount0 = sim.steps; t0 = now;               // per-frame rate, not cumulative
@@ -128,6 +132,7 @@ function postFrame(now) {
       massErrPct: (massErr * 100).toFixed(1),
       mdotSet: cfg.mdot * 1000,
       mdotMeasured: mdotMeasured == null ? null : mdotMeasured * 1000,
+      dpPa: dpPa == null ? null : dpPa.toFixed(0),
       averaging,
       warnings: lp.warnings,
     },

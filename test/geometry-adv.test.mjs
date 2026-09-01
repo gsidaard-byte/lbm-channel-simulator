@@ -71,7 +71,7 @@ async function runAdvanced(over, steps = 18000) {
   if (!sim.isStable()) return null;
   const avg = sim.timeAveraged();
   return { score: uniformity(avg.u),
-           massErr: Math.abs(avg.out - avg.in) / avg.in };
+           massErr: Math.abs(avg.outMass - avg.inMass) / avg.inMass };
 }
 
 test('advanced integration: screens + vanes beat the bare expansion', async () => {
