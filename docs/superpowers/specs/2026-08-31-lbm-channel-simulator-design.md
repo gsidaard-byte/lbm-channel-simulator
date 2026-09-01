@@ -104,7 +104,26 @@ No build tooling; ES modules loaded directly. Workers import `lbm.js`/`geometry.
 
 Browser-side behavior (sliders, rendering, tabs) is verified interactively.
 
-## 8. Out of scope (for now)
+## 8. Implementation amendments (discovered during build, 2026-09-01)
+
+1. **Reynolds capping instead of tau floor + Smagorinsky.** Stability testing on the
+   real geometry showed the cell Reynolds number (u_lat/ν_lat) must stay ≤ ~6.
+   The solver therefore runs at the physical Re when the grid supports it and
+   otherwise inflates viscosity, displaying "Re 472 → 76 (grid-limited)". Finer
+   grids raise the cap (coarse ≈ 76, medium ≈ 152, fine ≈ 217 at mid flow).
+2. **Time-averaged metrics.** The jet flaps quasi-periodically in the wide-angle
+   diffuser (real physics), so uniformity, the exit profile, and the mass check
+   use running time-averages taken after a startup transient; the plot shows
+   instantaneous (faint) and averaged (bold) profiles. The optimizer cost is the
+   unclamped std/mean (`nonUniformity`) for a smoother landscape.
+3. **Outlet sponge buffer.** An 18-column numerical buffer with a viscosity ramp
+   is appended after the physical exit plane so vortices leave cleanly; profiles
+   are sampled at the physical exit plane (`meta.probeCol`), upstream of it.
+4. **Inlet ramp.** The inlet velocity ramps over the first 800 steps to avoid an
+   impulsive-start pressure wave.
+5. Total-length cap includes d₁: `d1+d2+d3+d5+d6 ≤ 228.6 mm`.
+
+## 9. Out of scope (for now)
 
 - 3D effects, turbulence-resolved simulation, thermal effects.
 - Per-vane individual angles (all vanes share ±θ₂; symmetric about centerline).
