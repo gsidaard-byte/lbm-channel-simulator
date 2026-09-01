@@ -132,3 +132,29 @@ test('advanced integration: screens + vanes beat the bare expansion', async () =
      `conditioning helps: full=${full.score.toFixed(3)} vs bare=${bare.score.toFixed(3)}`);
   ok(full.score > 0.5, `full config decently uniform (${full.score.toFixed(3)})`);
 });
+
+test('advanced: screen-2 uniform fit gives equal slots wall to wall', () => {
+  const dx = 0.5;
+  const slotRuns = (fit) => {
+    const p = { ...ADV_DEFAULTS, scrMode: 'plate', sc1s: 0, sc2s: 0.4, sc2g: 5, sc2fit: fit };
+    const g = buildMaskAdvanced(p, dx);
+    ok(g.ok && g.meta.connected);
+    const col = Math.round((12.7 + 15 + ADV_DEFAULTS.tl + ADV_DEFAULTS.sc2x + 1 + g.margin * dx) / dx - 0.5);
+    const runs = [];
+    let run = 0;
+    for (let gy = 0; gy < g.ny; gy++) {
+      const fluid = g.mask[gy * g.nx + col] !== 0;
+      if (fluid) run++;
+      else if (run > 0) { runs.push(run); run = 0; }
+    }
+    if (run > 0) runs.push(run);
+    return runs;
+  };
+  const fitted = slotRuns(true);
+  ok(fitted.length >= 5, `several slots (${fitted.length})`);
+  ok(Math.max(...fitted) - Math.min(...fitted) <= 1,
+     `fitted slots uniform within one cell (${Math.min(...fitted)}..${Math.max(...fitted)})`);
+  const unfitted = slotRuns(false);
+  ok(Math.max(...unfitted) - Math.min(...unfitted) > 1,
+     `unfitted pattern has unequal edge slots (${Math.min(...unfitted)}..${Math.max(...unfitted)})`);
+});

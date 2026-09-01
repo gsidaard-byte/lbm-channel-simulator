@@ -125,6 +125,15 @@ function buildControls() {
   });
   root.appendChild(modeRow);
 
+  const fitRow = document.createElement('label');
+  fitRow.innerHTML = `<input type="checkbox" id="chk-sc2fit" checked> screen 2: uniform wall-to-wall slots`;
+  fitRow.querySelector('input').addEventListener('change', (e) => {
+    params.sc2fit = e.target.checked;
+    updateReadouts();
+    reconfigure();
+  });
+  root.appendChild(fitRow);
+
   const ro = document.createElement('div');
   ro.id = 'adv-readout'; ro.className = 'readout';
   root.appendChild(ro);
@@ -137,8 +146,15 @@ function buildControls() {
 function updateReadouts() {
   let ribs = '';
   if (params.scrMode !== 'porous') {
-    const dims = (s, g) => s > 0 ? `slot ${g.toFixed(1)}/rib ${(g / (1 - s) - g).toFixed(1)}` : 'off';
-    ribs = ` · print: scr1 ${dims(params.sc1s, params.sc1g)} · scr2 ${dims(params.sc2s, params.sc2g)} mm`;
+    const dims = (s, g, fit) => {
+      if (s <= 0) return 'off';
+      let pitch = g / (1 - s);
+      if (fit) pitch = 203.2 / Math.max(2, Math.round(203.2 / pitch));  // exit-span fit
+      const slot = fit ? pitch * (1 - s) : g;
+      return `slot ${slot.toFixed(1)}/rib ${(pitch - slot).toFixed(1)}${fit ? ' (fit)' : ''}`;
+    };
+    ribs = ` · print: scr1 ${dims(params.sc1s, params.sc1g, false)}` +
+           ` · scr2 ${dims(params.sc2s, params.sc2g, params.sc2fit)} mm`;
   }
   document.getElementById('adv-readout').textContent =
     `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz` +

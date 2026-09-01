@@ -16,6 +16,8 @@ export const ADV_DEFAULTS = {
   sc2x: 175, sc2s: 0.4,    // screen 2
   scrMode: 'plate',        // 'plate' = 3D-printable rib array; 'porous' = ideal mesh
   sc1g: 3, sc2g: 3,        // plate slot (gap) widths [mm]
+  sc2fit: true,            // screen 2: fit an integer number of equal slots
+                           // wall-to-wall (half-ribs attach to both walls)
 };
 
 const D1 = 12.7, D2 = 15;  // inlet width and bend length (fixed hardware)
@@ -35,6 +37,7 @@ export function advClamp(p) {
   for (const k of ['sc1s', 'sc2s']) q[k] = Math.min(0.9, Math.max(0, q[k]));
   for (const k of ['sc1g', 'sc2g']) q[k] = Math.min(8, Math.max(2, q[k]));
   if (q.scrMode !== 'porous') q.scrMode = 'plate';
+  q.sc2fit = q.sc2fit !== false;
   q.bendVanes = Math.min(4, Math.max(0, Math.round(q.bendVanes)));
   q.r1n = Math.min(12, Math.max(0, Math.round(q.r1n)));
   q.r2n = Math.min(16, Math.max(0, Math.round(q.r2n)));
@@ -129,12 +132,21 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
   // half a pitch); falls back to porous cells when slots would be < ~2.5 cells.
   const plateTh = Math.max(2, 2 * dxMM);
   const screens = [
-    { xs: xd + p.sc1x, sol: p.sc1s, gap: p.sc1g, phase: 0 },
-    { xs: xd + p.sc2x, sol: p.sc2s, gap: p.sc2g, phase: 0.5 },
-  ].filter(s => s.sol > 0).map(s => ({
-    ...s, asPlate: p.scrMode === 'plate' && s.gap >= 2.5 * dxMM && s.sol > 0.05,
-    pitch: s.gap / Math.max(0.1, 1 - s.sol),
-  }));
+    { xs: xd + p.sc1x, sol: p.sc1s, gap: p.sc1g, phase: 0, fit: false },
+    { xs: xd + p.sc2x, sol: p.sc2s, gap: p.sc2g, phase: 0.5, fit: p.sc2fit },
+  ].filter(s => s.sol > 0).map(s => {
+    const out = { ...s, asPlate: p.scrMode === 'plate' && s.gap >= 2.5 * dxMM && s.sol > 0.05,
+                  pitch: s.gap / Math.max(0.1, 1 - s.sol) };
+    if (out.fit && out.asPlate) {
+      // integer number of equal slots across the local span, half-ribs at walls
+      const span = 2 * hAt(out.xs + plateTh / 2);
+      const n = Math.max(2, Math.round(span / out.pitch));
+      out.pitch = span / n;
+      out.gap = out.pitch * (1 - Math.max(0.1, out.sol));
+      out.span = span;
+    }
+    return out;
+  });
   for (let gy = 0; gy < ny; gy++) {
     const ymm = (gy + 0.5) * dxMM;
     for (let gx = 0; gx < nx; gx++) {
@@ -146,9 +158,16 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
       for (const s of screens) {
         if (s.asPlate) {
           if (xmm >= s.xs && xmm < s.xs + plateTh) {
-            const rel = (ymm - yc) / s.pitch + s.phase;
-            const frac = Math.abs(rel - Math.round(rel)) * s.pitch;
-            if (frac <= (s.pitch - s.gap) / 2) mask[c] = SOLID;   // rib
+            if (s.fit) {
+              // wall-anchored: slot centers at (m+0.5)*pitch from the lower wall
+              const rel = (ymm - (yc - s.span / 2)) / s.pitch;
+              const frac = Math.abs(rel - Math.floor(rel) - 0.5) * s.pitch;
+              if (frac > s.gap / 2) mask[c] = SOLID;               // rib
+            } else {
+              const rel = (ymm - yc) / s.pitch + s.phase;
+              const frac = Math.abs(rel - Math.round(rel)) * s.pitch;
+              if (frac <= (s.pitch - s.gap) / 2) mask[c] = SOLID;  // rib
+            }
           }
         } else if (xmm >= s.xs && xmm < s.xs + 2 * dxMM) {
           porous[c] = s.sol;
