@@ -179,8 +179,12 @@ function drawFrame(m) {
   const s = m.stats;
   const reTxt = s.warnings.includes('reynolds-capped')
     ? `Re ${s.re} → <b>${s.reEff}</b> (grid-limited)` : `Re ${s.re}`;
+  const inflowTxt = s.mdotMeasured == null
+    ? `inflow ${s.mdotSet.toFixed(1)} g/s (set)`
+    : `inflow <b>${s.mdotMeasured.toFixed(2)}</b> / ${s.mdotSet.toFixed(1)} g/s`;
   document.getElementById('sim-stats').innerHTML =
-    `<span>${reTxt}</span><span>u_lat ${s.mach}</span><span>τ ${s.tau}</span>` +
+    `<span>${reTxt}</span><span>${inflowTxt}</span>` +
+    `<span>u_lat ${s.mach}</span><span>τ ${s.tau}</span>` +
     `<span>${s.stepsPerSec} steps/s</span><span>t = ${s.tPhys} s</span>` +
     `<span>mass Δ ${s.massErrPct}%</span>` +
     (s.averaging ? '' : '<span style="color:#fb5">developing…</span>');

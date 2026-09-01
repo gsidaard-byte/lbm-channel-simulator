@@ -5,9 +5,15 @@ import { LBM, uniformity, nonUniformity } from './lbm.js';
 import { inletVelocity, latticeParams } from './units.js';
 import { nelderMead } from './optimizer.js';
 
-const TRANSIENT = 3000, CHUNK = 1500, MAX_CHUNKS = 14, STEADY_TOL = 0.02;
+const TRANSIENT = 7000, CHUNK = 2000, MAX_CHUNKS = 14, STEADY_TOL = 0.02;
 
 let cancelled = false;
+
+// setTimeout is throttled to 1Hz in hidden tabs; MessageChannel isn't.
+const yieldChan = new MessageChannel();
+let yieldResolve = null;
+yieldChan.port1.onmessage = () => { const r = yieldResolve; yieldResolve = null; if (r) r(); };
+const microYield = () => new Promise(r => { yieldResolve = r; yieldChan.port2.postMessage(0); });
 
 onmessage = async (e) => {
   const m = e.data;
@@ -76,7 +82,7 @@ async function evalOnce(p, mdot, dxMM, depthMM) {
     } else steady = 0;
     prev = cost;
     if (cancelled) break;
-    await new Promise(r => setTimeout(r, 0));      // let cancel messages arrive
+    await microYield();                            // let cancel messages arrive
   }
   const avg = sim.timeAveraged();
   return { cost: nonUniformity(avg.u), score: uniformity(avg.u) };

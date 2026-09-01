@@ -23,7 +23,9 @@ export function throatReynolds(uInlet, d1M) { return uInlet * d1M / NU; }
 // geometry); when the physical viscosity would exceed that, viscosity is
 // inflated and the simulation runs at a reduced effective Reynolds number
 // reEff = rePhys * reScale, flagged with the 'reynolds-capped' warning.
-export function latticeParams({ dxM, uMaxPhys, uLatCap = 0.08, cellReMax = 6 }) {
+// uLatCap 0.05: keeps the artificial Mach number low so compressibility
+// artifacts (inlet flux fluctuation, mass breathing) stay ~1% — they scale as Ma².
+export function latticeParams({ dxM, uMaxPhys, uLatCap = 0.05, cellReMax = 6 }) {
   const warnings = [];
   const dt = uLatCap * dxM / uMaxPhys;
   const nuLatPhys = NU * dt / (dxM * dxM);

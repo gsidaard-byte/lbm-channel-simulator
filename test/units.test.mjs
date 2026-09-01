@@ -21,7 +21,7 @@ test('calibration round-trip', () => {
 
 test('latticeParams matches physical viscosity for slow flows', () => {
   const lp = latticeParams({ dxM: 5e-4, uMaxPhys: 0.002 });
-  approx(lp.uLat, 0.08, 1e-9, 'uLat is Mach-set');
+  approx(lp.uLat, 0.05, 1e-9, 'uLat is Mach-set (low-Mach cap for water fidelity)');
   approx(NU * lp.dt / (5e-4 * 5e-4), (lp.tau - 0.5) / 3, 1e-12, 'nu consistency');
   approx(lp.reScale, 1, 1e-9, 'no Re capping');
   ok(lp.warnings.length === 0);
