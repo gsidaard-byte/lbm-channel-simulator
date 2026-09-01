@@ -143,7 +143,42 @@ at defaults):
    placement). Vanes are distributed across the *local* channel height at the
    vane-center station and are clipped to the fluid region automatically.
 
-## 10. Out of scope (for now)
+## 10. Extension: Advanced tab — flow-conditioning architecture (2026-09-01)
+
+A third tab implementing the aerodynamic redesign: uniformity via flow
+splitting + distributed resistance instead of attached diffusion. Inlet fixed
+at 12.7 mm, exit fixed at 203.2 mm (8"), total length fixed at 228.6 mm (9").
+
+Components (each with sliders, all in `buildMaskAdvanced`):
+1. **Bend turning vanes** (0–4): thin concentric arcs inside the 90° turn
+   annulus, evenly spaced across the local passage width — deliver a
+   symmetric jet to the throat.
+2. **Quintic expansion** (reuses s0/s1 wall shaping) of length `Lexp` from
+   throat height `th` to the fixed exit height; remaining length is a
+   straight settling/exit section.
+3. **Two rows of auto-cambered splitter vanes**: circular-arc-like vanes
+   whose leading edge aligns with the local ray from the expansion's virtual
+   apex (the local flow direction) and whose trailing edge is axial — camber
+   is computed, not a free variable. Per row: count, position, chord.
+4. **Two porous screens** (perforated-plate analog): partial-bounce-back
+   cell columns (Walsh-style: post-collision distributions blended with
+   their opposites by solidity σ ∈ [0, 0.9]) spanning the local channel
+   height. Per screen: position, solidity. Screens damp non-uniformity by
+   the Taylor–Batchelor mechanism and are expected to be the dominant
+   uniformity contributor.
+
+Solver change: `LBM` accepts an optional `porous` Float32Array (per-cell
+solidity); porous cells collide normally, then blend each outgoing
+distribution with its opposite by σ before streaming (local, mass- and
+stability-preserving). Screens render as light overlay cells.
+
+The Advanced tab reuses the shared rendering module (field + colorbar +
+profile axes + score) and its own sim worker instance; the inactive tab's
+simulation auto-pauses. Optimizer integration for the advanced design is a
+follow-up. The coat-hanger/header-manifold distributor topology is future
+work (section 11).
+
+## 11. Out of scope (for now)
 
 - 3D effects, turbulence-resolved simulation, thermal effects.
 - Per-vane individual angles (all vanes share ±θ₂; symmetric about centerline).

@@ -17,8 +17,9 @@ export class LBM {
   //  probeCol=nx-2 (column for exitProfile/outlet flux),
   //  spongeW=0 (columns before the outlet where tau ramps to spongeTau)}
   constructor({ nx, ny, mask, tau, uIn, magic = 0.25, smagorinsky = 0, periodic = false,
-                ramp = 0, probeCol = null, spongeW = 0, spongeTau = 1.6 }) {
+                ramp = 0, probeCol = null, spongeW = 0, spongeTau = 1.6, porous = null }) {
     this.nx = nx; this.ny = ny; this.mask = mask;
+    this.porous = porous;   // per-cell screen solidity in [0,1), or null
     this.tau = tau; this.uIn = uIn; this.smag = smagorinsky; this.periodic = periodic;
     this.ramp = ramp;
     this.probeCol = probeCol ?? nx - 2;
@@ -64,8 +65,8 @@ export class LBM {
   step(n = 1) { for (let s = 0; s < n; s++) this._step(); return this.steps; }
 
   _step() {
-    const { nx, ny, mask, f, g, periodic, smag, tau, colOmP, colOmM } = this;
-    const fe = new Float64Array(9);
+    const { nx, ny, mask, f, g, periodic, smag, tau, colOmP, colOmM, porous } = this;
+    const fe = new Float64Array(9), pb = new Float64Array(9);
     for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
       const c = y * nx + x;
       if (mask[c] === SOLID) continue;
@@ -85,11 +86,24 @@ export class LBM {
         const tEff = 0.5 * (tau + Math.sqrt(tau * tau + 18 * Math.SQRT2 * smag * smag * Q / rho));
         oP = 1 / tEff; oM = 1 / (0.5 + 0.25 / (tEff - 0.5));
       }
+      const sig = porous ? porous[c] : 0;
+      if (sig > 0) for (let i = 0; i < 9; i++) {  // precompute post for screen blend
+        const j = OPP[i];
+        pb[i] = f[b + i]
+          - oP * (0.5 * (f[b + i] + f[b + j]) - 0.5 * (fe[i] + fe[j]))
+          - oM * (0.5 * (f[b + i] - f[b + j]) - 0.5 * (fe[i] - fe[j]));
+      }
       for (let i = 0; i < 9; i++) {
         const j = OPP[i];
-        const fp = 0.5 * (f[b + i] + f[b + j]) - 0.5 * (fe[i] + fe[j]);
-        const fm = 0.5 * (f[b + i] - f[b + j]) - 0.5 * (fe[i] - fe[j]);
-        const post = f[b + i] - oP * fp - oM * fm;
+        let post;
+        if (sig > 0) {
+          // partial bounce-back (Walsh): blend with the opposite direction
+          post = (1 - sig) * pb[i] + sig * pb[j];
+        } else {
+          const fp = 0.5 * (f[b + i] + f[b + j]) - 0.5 * (fe[i] + fe[j]);
+          const fm = 0.5 * (f[b + i] - f[b + j]) - 0.5 * (fe[i] - fe[j]);
+          post = f[b + i] - oP * fp - oM * fm;
+        }
         let tx = x + CX[i], ty = y + CY[i];
         if (periodic) { tx = (tx + nx) % nx; ty = (ty + ny) % ny; }
         if (tx < 0 || tx >= nx || ty < 0 || ty >= ny || mask[ty * nx + tx] === SOLID)

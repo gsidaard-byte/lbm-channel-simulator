@@ -74,3 +74,21 @@ test('integration: baseline geometry runs stable and conserves mass', async () =
   const u = uniformity(avg.u);
   ok(u > 0.1 && u <= 1, `uniformity ${u}`);
 });
+
+test('porous screen absorbs momentum, conserves mass, stays stable', () => {
+  const nx = 40, ny = 20, tau = 0.7, u0 = 0.05;
+  const mask = new Uint8Array(nx * ny).fill(FLUID);
+  const porous = new Float32Array(nx * ny);
+  for (let y = 0; y < ny; y++) porous[y * nx + 20] = 0.5;   // screen column
+  const sim = new LBM({ nx, ny, mask, tau, uIn: 0, periodic: true, porous });
+  sim.initEquilibrium(() => 1, () => [u0, 0]);
+  const mass0 = sim.f.reduce((s, v) => s + v, 0);
+  sim.step(300);
+  ok(sim.isStable(), 'stable with screen');
+  const mass1 = sim.f.reduce((s, v) => s + v, 0);
+  approx(mass1, mass0, 1e-9 * mass0, 'mass conserved');
+  const { rho, ux } = sim.macros();
+  let mom = 0;
+  for (let c = 0; c < nx * ny; c++) mom += rho[c] * ux[c];
+  ok(mom < 0.9 * (nx * ny * u0), `screen drag reduced momentum (${mom.toFixed(2)} vs ${(nx*ny*u0).toFixed(2)})`);
+});
