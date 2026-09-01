@@ -36,10 +36,12 @@ const FREE = [
   { key: 'r2n', lo: 4, hi: 16, x0: 8, int: true },
 ];
 
+// solver logs are tens of MB: discard stdout, keep stderr with a large buffer
 const foam = (cmd, cwd) => execFileSync('openfoam', cmd.split(' '),
-  { cwd, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30 * 60 * 1000 }).toString();
+  { cwd, stdio: ['ignore', 'ignore', 'pipe'], timeout: 30 * 60 * 1000,
+    maxBuffer: 64 * 1024 * 1024 });
 const node = (script, argv) => execFileSync(process.execPath, [join(here, script), ...argv],
-  { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString();
 
 let evalNo = 0;
 writeFileSync(join(work, 'history.csv'),
