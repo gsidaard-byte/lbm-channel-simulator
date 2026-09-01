@@ -11,8 +11,51 @@ test('advanced: default build is connected with fixed exit and length', () => {
   ok(g.porous instanceof Float32Array && g.porous.length === g.mask.length);
 });
 
+test('advanced: printable plates are solid rib arrays with correct open area', () => {
+  const p = { ...ADV_DEFAULTS, scrMode: 'plate', sc1s: 0.5, sc1g: 4, sc2s: 0 };
+  const g = buildMaskAdvanced(p, 0.5);
+  ok(g.ok && g.meta.connected, 'connected through plate slots');
+  ok(g.porous.every(v => v === 0), 'no porous cells in plate mode');
+  // measure open-area fraction in the plate band vs just upstream of it
+  const dx = 0.5, margin = g.margin;
+  const xPlate = 12.7 + 15 + ADV_DEFAULTS.tl + ADV_DEFAULTS.sc1x + 1;   // inside plate
+  const col = (xmm) => Math.round((xmm + margin * dx) / dx - 0.5);
+  const fluidCount = (gx) => {
+    let n = 0;
+    for (let gy = 0; gy < g.ny; gy++) if (g.mask[gy * g.nx + gx] !== 0) n++;
+    return n;
+  };
+  const open = fluidCount(col(xPlate)) / fluidCount(col(xPlate - 6));
+  ok(Math.abs(open - 0.5) < 0.12, `open area ~50% (got ${(open * 100).toFixed(0)}%)`);
+});
+
+test('advanced: two plates are staggered relative to each other', () => {
+  const p = { ...ADV_DEFAULTS, scrMode: 'plate', sc1s: 0.5, sc2s: 0.5, sc1g: 4, sc2g: 4,
+              sc1x: 150, sc2x: 170 };
+  const g = buildMaskAdvanced(p, 0.5);
+  ok(g.ok && g.meta.connected);
+  const dx = 0.5, margin = g.margin;
+  const col = (xmm) => Math.round((xmm + margin * dx) / dx - 0.5);
+  const pat = (gx) => {
+    let s = '';
+    for (let gy = 0; gy < g.ny; gy++) s += g.mask[gy * g.nx + gx] === 0 ? '#' : '.';
+    return s;
+  };
+  const base = 12.7 + 15 + ADV_DEFAULTS.tl;
+  const p1 = pat(col(base + 150 + 1)), p2 = pat(col(base + 170 + 1));
+  ok(p1 !== p2, 'staggered rib patterns differ');
+});
+
+test('advanced: coarse-grid fallback to porous when slots are unresolvable', () => {
+  const g = buildMaskAdvanced({ ...ADV_DEFAULTS, scrMode: 'plate', sc1g: 2, sc2g: 2 }, 1.5);
+  ok(g.ok && g.meta.connected);
+  let nPorous = 0;
+  for (const v of g.porous) if (v > 0) nPorous++;
+  ok(nPorous > 100, 'fell back to porous cells at coarse grid');
+});
+
 test('advanced: screens appear in the porous array with the set solidity', () => {
-  const g = buildMaskAdvanced({ ...ADV_DEFAULTS, sc1s: 0.7, sc2s: 0 }, 1.0);
+  const g = buildMaskAdvanced({ ...ADV_DEFAULTS, scrMode: 'porous', sc1s: 0.7, sc2s: 0 }, 1.0);
   let n7 = 0, nOther = 0;
   for (let i = 0; i < g.porous.length; i++) {
     if (Math.abs(g.porous[i] - 0.7) < 1e-6) n7++;
@@ -20,8 +63,15 @@ test('advanced: screens appear in the porous array with the set solidity', () =>
   }
   ok(n7 > 100, `screen 1 cells present (${n7})`);
   ok(nOther === 0, 'disabled screen absent');
-  const g0 = buildMaskAdvanced({ ...ADV_DEFAULTS, sc1s: 0, sc2s: 0 }, 1.0);
+  const g0 = buildMaskAdvanced({ ...ADV_DEFAULTS, scrMode: 'porous', sc1s: 0, sc2s: 0 }, 1.0);
   ok(g0.porous.every(v => v === 0), 'no screens when solidity 0');
+});
+
+test('advanced integration: printable plates achieve good uniformity', async () => {
+  const plate = await runAdvanced({ scrMode: 'plate', sc1g: 4, sc2g: 4 }, 18000, 1.0);
+  ok(plate, 'plate config ran stably');
+  ok(plate.massErr < 0.06, `mass err ${plate.massErr}`);
+  ok(plate.score > 0.5, `plate uniformity ${plate.score.toFixed(3)}`);
 });
 
 test('advanced: bend vanes and vane rows add solid cells', () => {
@@ -53,9 +103,8 @@ test('advanced: edge configs stay connected', () => {
 import { LBM, uniformity } from '../js/lbm.js';
 import { inletVelocity, latticeParams } from '../js/units.js';
 
-async function runAdvanced(over, steps = 18000) {
+async function runAdvanced(over, steps = 18000, dxMM = 1.5) {
   const p = advClamp({ ...ADV_DEFAULTS, ...over });
-  const dxMM = 1.5;
   const g = buildMaskAdvanced(p, dxMM);
   if (!g.ok || !g.meta.connected) return null;
   const uPhys = inletVelocity(6e-3, 12.7 / 1000, 0.0127);

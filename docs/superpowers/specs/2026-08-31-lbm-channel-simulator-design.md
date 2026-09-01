@@ -160,12 +160,20 @@ Components (each with sliders, all in `buildMaskAdvanced`):
    whose leading edge aligns with the local ray from the expansion's virtual
    apex (the local flow direction) and whose trailing edge is axial — camber
    is computed, not a free variable. Per row: count, position, chord.
-4. **Two porous screens** (perforated-plate analog): partial-bounce-back
-   cell columns (Walsh-style: post-collision distributions blended with
-   their opposites by solidity σ ∈ [0, 0.9]) spanning the local channel
-   height. Per screen: position, solidity. Screens damp non-uniformity by
-   the Taylor–Batchelor mechanism and are expected to be the dominant
-   uniformity contributor.
+4. **Two screens**, in either of two modes (`scrMode`):
+   - `plate` (default, 3D-printable): an explicitly resolved rib array —
+     slot width `sc*g` [2–8 mm] and solidity σ set the rib pitch
+     g/(1−σ); the second plate is staggered half a pitch. Falls back to
+     porous cells when slots would be under ~2.5 grid cells. The UI shows
+     the printable slot/rib dimensions. Placement guidance (verified):
+     leave ≥ ~8 pitches of settling distance after the last plate, and
+     prefer a finer slot on the last plate (2.5–3 mm).
+   - `porous` (ideal mesh): partial-bounce-back cell columns
+     (Walsh-style: post-collision distributions blended with their
+     opposites by solidity σ). Upper bound on what a real mesh insert
+     would achieve (plates at 4 mm slots come within ~3% of it).
+   Screens damp non-uniformity by the Taylor–Batchelor mechanism and are
+   the dominant uniformity contributor.
 
 Solver change: `LBM` accepts an optional `porous` Float32Array (per-cell
 solidity); porous cells collide normally, then blend each outgoing

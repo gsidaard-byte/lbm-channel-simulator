@@ -14,6 +14,8 @@ export const ADV_DEFAULTS = {
   r2n: 8, r2x: 70, r2c: 25,   // splitter row 2
   sc1x: 150, sc1s: 0.6,    // screen 1: pos from expansion entry, solidity (0 = off)
   sc2x: 175, sc2s: 0.4,    // screen 2
+  scrMode: 'plate',        // 'plate' = 3D-printable rib array; 'porous' = ideal mesh
+  sc1g: 3, sc2g: 3,        // plate slot (gap) widths [mm]
 };
 
 const D1 = 12.7, D2 = 15;  // inlet width and bend length (fixed hardware)
@@ -31,6 +33,8 @@ export function advClamp(p) {
   }
   for (const k of ['sc1x', 'sc2x']) q[k] = Math.min(span - 8, Math.max(5, q[k]));
   for (const k of ['sc1s', 'sc2s']) q[k] = Math.min(0.9, Math.max(0, q[k]));
+  for (const k of ['sc1g', 'sc2g']) q[k] = Math.min(8, Math.max(2, q[k]));
+  if (q.scrMode !== 'porous') q.scrMode = 'plate';
   q.bendVanes = Math.min(4, Math.max(0, Math.round(q.bendVanes)));
   q.r1n = Math.min(12, Math.max(0, Math.round(q.r1n)));
   q.r2n = Math.min(16, Math.max(0, Math.round(q.r2n)));
@@ -121,7 +125,16 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
 
   const mask = new Uint8Array(nx * ny);
   const porous = new Float32Array(nx * ny);
-  const screens = [[xd + p.sc1x, p.sc1s], [xd + p.sc2x, p.sc2s]].filter(([, s]) => s > 0);
+  // Screens: 'plate' = resolved rib array (printable; second plate staggered
+  // half a pitch); falls back to porous cells when slots would be < ~2.5 cells.
+  const plateTh = Math.max(2, 2 * dxMM);
+  const screens = [
+    { xs: xd + p.sc1x, sol: p.sc1s, gap: p.sc1g, phase: 0 },
+    { xs: xd + p.sc2x, sol: p.sc2s, gap: p.sc2g, phase: 0.5 },
+  ].filter(s => s.sol > 0).map(s => ({
+    ...s, asPlate: p.scrMode === 'plate' && s.gap >= 2.5 * dxMM && s.sol > 0.05,
+    pitch: s.gap / Math.max(0.1, 1 - s.sol),
+  }));
   for (let gy = 0; gy < ny; gy++) {
     const ymm = (gy + 0.5) * dxMM;
     for (let gx = 0; gx < nx; gx++) {
@@ -130,8 +143,17 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
       const c = gy * nx + gx;
       if (nearVane(xmm, ymm)) { mask[c] = SOLID; continue; }
       mask[c] = FLUID;
-      for (const [xs, sol] of screens)
-        if (xmm >= xs && xmm < xs + 2 * dxMM) porous[c] = sol;
+      for (const s of screens) {
+        if (s.asPlate) {
+          if (xmm >= s.xs && xmm < s.xs + plateTh) {
+            const rel = (ymm - yc) / s.pitch + s.phase;
+            const frac = Math.abs(rel - Math.round(rel)) * s.pitch;
+            if (frac <= (s.pitch - s.gap) / 2) mask[c] = SOLID;   // rib
+          }
+        } else if (xmm >= s.xs && xmm < s.xs + 2 * dxMM) {
+          porous[c] = s.sol;
+        }
+      }
     }
   }
   for (let gx = 0; gx < nx; gx++) if (mask[gx] === FLUID) mask[gx] = INLET;

@@ -19,8 +19,10 @@ const SLIDERS = [
   { key: 'r2c', label: 'row2 c', min: 8, max: 60, step: 1 },
   { key: 'sc1x', label: 'scr1 x', min: 5, max: 195, step: 1 },
   { key: 'sc1s', label: 'scr1 σ', min: 0, max: 0.9, step: 0.05 },
+  { key: 'sc1g', label: 'scr1 slot', min: 2, max: 8, step: 0.5 },
   { key: 'sc2x', label: 'scr2 x', min: 5, max: 195, step: 1 },
   { key: 'sc2s', label: 'scr2 σ', min: 0, max: 0.9, step: 0.05 },
+  { key: 'sc2g', label: 'scr2 slot', min: 2, max: 8, step: 0.5 },
 ];
 const RES = { coarse: 1.0, medium: 0.5, fine: 0.35 };
 const INT_KEYS = new Set(['bendVanes', 'r1n', 'r2n']);
@@ -112,6 +114,17 @@ function buildControls() {
   });
   root.appendChild(fieldRow);
 
+  const modeRow = document.createElement('div');
+  modeRow.className = 'ctl';
+  modeRow.innerHTML = `<label>screens</label><select id="sel-scrmode">
+      <option value="plate" selected>printable plates (ribs)</option>
+      <option value="porous">ideal porous (mesh)</option></select><span></span>`;
+  modeRow.querySelector('select').addEventListener('change', (e) => {
+    params.scrMode = e.target.value;
+    reconfigure();
+  });
+  root.appendChild(modeRow);
+
   const ro = document.createElement('div');
   ro.id = 'adv-readout'; ro.className = 'readout';
   root.appendChild(ro);
@@ -122,8 +135,13 @@ function buildControls() {
 }
 
 function updateReadouts() {
+  let ribs = '';
+  if (params.scrMode !== 'porous') {
+    const dims = (s, g) => s > 0 ? `slot ${g.toFixed(1)}/rib ${(g / (1 - s) - g).toFixed(1)}` : 'off';
+    ribs = ` · print: scr1 ${dims(params.sc1s, params.sc1g)} · scr2 ${dims(params.sc2s, params.sc2g)} mm`;
+  }
   document.getElementById('adv-readout').textContent =
-    `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz`;
+    `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz${ribs}`;
 }
 
 function reconfigure() {
