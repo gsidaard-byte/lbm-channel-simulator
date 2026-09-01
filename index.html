@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LBM Channel Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <h1>LBM Channel Simulator</h1>
+  <nav>
+    <button id="tab-simulate" class="tab active">Simulate</button>
+    <button id="tab-optimize" class="tab">Optimize</button>
+  </nav>
+</header>
+<main>
+  <section id="panel-simulate" class="panel active">
+    <div id="sim-controls" class="controls"></div>
+    <div class="viz">
+      <div id="sim-banner" class="banner hidden"></div>
+      <canvas id="field-canvas" width="920" height="560"></canvas>
+      <div class="viz-row">
+        <canvas id="profile-canvas" width="460" height="220"></canvas>
+        <div id="score-box">
+          <div class="score-label">Exit uniformity</div>
+          <div id="score-value">–</div>
+          <canvas id="score-spark" width="220" height="48"></canvas>
+        </div>
+      </div>
+      <div id="sim-stats" class="stats"></div>
+    </div>
+  </section>
+  <section id="panel-optimize" class="panel">
+    <div id="opt-controls" class="controls"></div>
+    <div class="viz">
+      <div class="viz-row">
+        <canvas id="opt-convergence" width="460" height="240"></canvas>
+        <canvas id="opt-thumb" width="380" height="240"></canvas>
+      </div>
+      <div id="opt-status" class="stats"></div>
+      <div id="opt-table-wrap"><table id="opt-table"><thead></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+<script type="module">
+  for (const name of ['simulate', 'optimize']) {
+    document.getElementById(`tab-${name}`).addEventListener('click', () => {
+      document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
+      document.getElementById(`tab-${name}`).classList.add('active');
+      document.getElementById(`panel-${name}`).classList.add('active');
+    });
+  }
+  const sim = await import('./js/ui-simulate.js').catch(() => null);
+  const opt = await import('./js/ui-optimize.js').catch(() => null);
+  if (sim) sim.init();
+  if (opt && sim) opt.init({ sendToSimulate: sim.setParams, getParams: sim.getParams });
+</script>
+</body>
+</html>
