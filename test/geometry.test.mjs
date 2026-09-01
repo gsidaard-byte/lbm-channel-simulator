@@ -1,5 +1,5 @@
 import { test, ok, approx } from './harness.mjs';
-import { DEFAULT_PARAMS, CAPS, derived, violations, maxTheta1, maxD5, clampParams }
+import { DEFAULT_PARAMS, CAPS, derived, violations, maxTheta1, maxD5, clampParams, buildMask }
   from '../js/geometry.js';
 
 test('baseline parameters satisfy both caps', () => {
@@ -44,4 +44,47 @@ test('clampParams repairs random violating draws', () => {
     ok(violations(q).length === 0, `draw ${k} still violates: ${JSON.stringify(q)}`);
     ok(q.d4 === p.d4 && q.d1 === p.d1, 'clamp only touches theta1/d5/d6');
   }
+});
+
+test('buildMask baseline: fluid regions, inlet, outlet all present', () => {
+  const g = buildMask(DEFAULT_PARAMS, 1.0);
+  ok(g.ok, g.error);
+  const { mask, nx, ny } = g;
+  let nInlet = 0, nOutlet = 0, nFluid = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 2) nInlet++;
+    if (mask[i] === 3) nOutlet++;
+    if (mask[i] !== 0) nFluid++;
+  }
+  approx(nInlet, Math.round(12.7 / 1.0), 2, 'inlet width in cells');
+  ok(nOutlet > 100, `outlet cells ${nOutlet}`); // exit height ~160mm at 1mm/cell
+  ok(nFluid > 0.2 * nx * ny, 'substantial fluid fraction');
+});
+
+test('buildMask connectivity: inlet reaches outlet', () => {
+  ok(buildMask(DEFAULT_PARAMS, 1.0).meta.connected);
+});
+
+test('vanes add solid cells and never block the channel', () => {
+  const g0 = buildMask({ ...DEFAULT_PARAMS, nVanes: 0 }, 1.0);
+  const g6 = buildMask({ ...DEFAULT_PARAMS, nVanes: 6 }, 1.0);
+  let f0 = 0, f6 = 0;
+  for (let i = 0; i < g0.mask.length; i++) { if (g0.mask[i] !== 0) f0++; if (g6.mask[i] !== 0) f6++; }
+  ok(f6 < f0, 'vanes removed fluid cells');
+  ok(g6.meta.connected, 'still connected with vanes');
+});
+
+test('buildMask edge cases stay connected', () => {
+  for (const p of [
+    { ...DEFAULT_PARAMS, theta1: 5, d5: 60 },          // shallow short diffuser
+    { ...DEFAULT_PARAMS, theta1: maxTheta1(DEFAULT_PARAMS) - 0.1 }, // widest
+    { ...DEFAULT_PARAMS, d4: 35, nVanes: 10, theta2: 35 },
+  ]) {
+    const g = buildMask(clampParams(p), 1.0);
+    ok(g.ok && g.meta.connected, JSON.stringify(p));
+  }
+});
+
+test('buildMask rejects violating params', () => {
+  ok(!buildMask({ ...DEFAULT_PARAMS, d5: 400 }, 1.0).ok);
 });

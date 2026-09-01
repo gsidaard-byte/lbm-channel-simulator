@@ -46,3 +46,92 @@ export function clampParams(p) {
     q.d6 = Math.max(5, q.d6 - (derived(q).totalLen - CAPS.totalLenMM));
   return q;
 }
+
+const smooth = (t) => t * t * (3 - 2 * t); // smoothstep
+
+function distToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-12;
+  let t = ((px - ax) * dx + (py - ay) * dy) / L2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// Rasterize params to a mask grid. dxMM = cell size in mm.
+// Returns {ok, error?, mask, nx, ny, dx, yc, margin, meta:{connected, exitHeight, totalLen}}
+export function buildMask(p, dxMM, margin = 2) {
+  const bad = violations(p);
+  if (bad.length) return { ok: false, error: `constraint violated: ${bad.join(', ')}` };
+  const der = derived(p);
+  const H = Math.max(der.exitHeight + 2 * margin * dxMM, 2 * (p.d4 / 2 + p.d2 + 10));
+  const nx = Math.ceil(der.totalLen / dxMM) + margin;
+  const ny = Math.ceil(H / dxMM);
+  const yc = (ny * dxMM) / 2;
+  const Cy = yc - p.d4 / 2 - p.d2;      // duct bottom / turn center y
+  if (Cy < 2 * dxMM) return { ok: false, error: 'duct does not fit (increase exit height or reduce d2/d4)' };
+  const Cx = p.d1 + p.d2;
+  const xt = p.d1 + p.d2, xd = xt + p.d3, xe = xd + p.d5, xEnd = xe + p.d6;
+  const t1 = Math.tan(p.theta1 * Math.PI / 180);
+  const th2 = p.theta2 * Math.PI / 180;
+  const N = p.nVanes | 0;
+  const Lv = Math.min(0.8 * p.d6, 15), halfC = Lv / 2;
+  const vaneTh = Math.max(1.0, 2.2 * dxMM) / 2;
+  const xv = xe + halfC + dxMM;         // vane center plane
+  const vanes = [];
+  for (let j = 1; j <= N; j++) {
+    const o = der.exitHeight * (j / (N + 1) - 0.5);
+    const dirY = Math.sign(o) * Math.sin(th2), dirX = Math.cos(th2);
+    vanes.push([xv - halfC * dirX, yc + o - halfC * dirY, xv + halfC * dirX, yc + o + halfC * dirY]);
+  }
+
+  const isFluid = (x, y) => {
+    if (x >= 0 && x <= p.d1 && y >= 0 && y <= Cy) return true;                    // duct
+    if (x <= Cx && y >= Cy) {                                                     // turn
+      const r = Math.hypot(x - Cx, y - Cy);
+      const a = Math.atan2(y - Cy, Cx - x) / (Math.PI / 2);                       // 0=duct side, 1=throat side
+      if (a >= 0 && a <= 1) {
+        const ro = (p.d1 + p.d2) + smooth(a) * ((p.d2 + p.d4) - (p.d1 + p.d2));
+        if (r >= p.d2 && r <= ro) return true;
+      }
+    }
+    const dy = Math.abs(y - yc);
+    if (x >= xt && x <= xd && dy <= p.d4 / 2) return true;                        // throat
+    if (x >= xd && x <= xe && dy <= p.d4 / 2 + (x - xd) * t1) return true;        // diffuser
+    if (x >= xe && x <= xEnd && dy <= der.exitHeight / 2) return true;            // exit
+    return false;
+  };
+
+  const mask = new Uint8Array(nx * ny); // SOLID
+  for (let gy = 0; gy < ny; gy++) {
+    const ymm = (gy + 0.5) * dxMM;
+    for (let gx = 0; gx < nx; gx++) {
+      const xmm = (gx + 0.5) * dxMM - margin * dxMM;
+      if (!isFluid(xmm, ymm)) continue;
+      let solid = false;
+      for (const [ax, ay, bx, by] of vanes)
+        if (distToSeg(xmm, ymm, ax, ay, bx, by) <= vaneTh) { solid = true; break; }
+      mask[gy * nx + gx] = solid ? SOLID : FLUID;
+    }
+  }
+  // inlet: top row fluid cells (duct opening); outlet: rightmost fluid column
+  for (let gx = 0; gx < nx; gx++) if (mask[gx] === FLUID) mask[gx] = INLET;
+  for (let gy = 0; gy < ny; gy++) {
+    const i = gy * nx + (nx - 1);
+    if (mask[i] === FLUID) mask[i] = OUTLET;
+  }
+  // BFS connectivity from inlet to outlet
+  const seen = new Uint8Array(nx * ny), q = [];
+  for (let gx = 0; gx < nx; gx++) if (mask[gx] === INLET) { q.push(gx); seen[gx] = 1; }
+  let connected = false;
+  while (q.length) {
+    const i = q.pop(), gx = i % nx, gy = (i / nx) | 0;
+    if (mask[i] === OUTLET) { connected = true; break; }
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const tx = gx + ox, ty = gy + oy;
+      if (tx < 0 || tx >= nx || ty < 0 || ty >= ny) continue;
+      const j = ty * nx + tx;
+      if (!seen[j] && mask[j] !== SOLID) { seen[j] = 1; q.push(j); }
+    }
+  }
+  return { ok: true, mask, nx, ny, dx: dxMM, yc, margin,
+           meta: { connected, exitHeight: der.exitHeight, totalLen: der.totalLen } };
+}
