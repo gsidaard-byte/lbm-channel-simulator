@@ -17,19 +17,21 @@ export function inletVelocity(mdot, d1M, depthM) { return mdot / (RHO * d1M * de
 // By continuity U_throat*d4 = U_in*d1, so Re_throat = U_throat*d4/nu = U_in*d1/nu.
 export function throatReynolds(uInlet, d1M) { return uInlet * d1M / NU; }
 
-// Pick dt for a given dx [m] and max physical speed [m/s]:
-// prefer lattice Mach cap uLat<=0.1; if that would push tau below tauMin,
-// enforce tau=tauMin instead and accept a higher lattice velocity.
-export function latticeParams({ dxM, uMaxPhys, tauMin = 0.51, uLatCap = 0.1 }) {
+// Pick lattice parameters for a given dx [m] and max physical speed [m/s].
+// dt is Mach-set (uLat = uLatCap exactly). Stability requires the cell
+// Reynolds number uLat/nuLat <= cellReMax (measured empirically on this
+// geometry); when the physical viscosity would exceed that, viscosity is
+// inflated and the simulation runs at a reduced effective Reynolds number
+// reEff = rePhys * reScale, flagged with the 'reynolds-capped' warning.
+export function latticeParams({ dxM, uMaxPhys, uLatCap = 0.08, cellReMax = 6 }) {
   const warnings = [];
-  let dt = uLatCap * dxM / uMaxPhys;
-  let tau = 3 * (NU * dt / (dxM * dxM)) + 0.5;
-  if (tau < tauMin) {
-    tau = tauMin;
-    dt = ((tauMin - 0.5) / 3) * dxM * dxM / NU;
-    warnings.push('smagorinsky-recommended');
+  const dt = uLatCap * dxM / uMaxPhys;
+  const nuLatPhys = NU * dt / (dxM * dxM);
+  let nuLat = nuLatPhys;
+  if (uLatCap / nuLat > cellReMax) {
+    nuLat = uLatCap / cellReMax;
+    warnings.push('reynolds-capped');
   }
-  const uLat = uMaxPhys * dt / dxM;
-  if (uLat > 0.17) warnings.push('high-mach');
-  return { dt, tau, uLat, warnings };
+  const tau = 3 * nuLat + 0.5;
+  return { dt, tau, uLat: uLatCap, reScale: nuLatPhys / nuLat, warnings };
 }

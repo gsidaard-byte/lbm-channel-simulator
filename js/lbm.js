@@ -12,15 +12,36 @@ export function feq(i, rho, ux, uy) {
 }
 
 export class LBM {
-  // {nx, ny, mask, tau, uIn (lattice, +y at inlet), magic=0.25, smagorinsky=0, periodic=false}
-  constructor({ nx, ny, mask, tau, uIn, magic = 0.25, smagorinsky = 0, periodic = false }) {
+  // {nx, ny, mask, tau, uIn (lattice, +y at inlet), magic=0.25, smagorinsky=0,
+  //  periodic=false, ramp=0 (steps over which the inlet velocity ramps up),
+  //  probeCol=nx-2 (column for exitProfile/outlet flux),
+  //  spongeW=0 (columns before the outlet where tau ramps to spongeTau)}
+  constructor({ nx, ny, mask, tau, uIn, magic = 0.25, smagorinsky = 0, periodic = false,
+                ramp = 0, probeCol = null, spongeW = 0, spongeTau = 1.6 }) {
     this.nx = nx; this.ny = ny; this.mask = mask;
     this.tau = tau; this.uIn = uIn; this.smag = smagorinsky; this.periodic = periodic;
+    this.ramp = ramp;
+    this.probeCol = probeCol ?? nx - 2;
     this.omP = 1 / tau;
     this.omM = 1 / (0.5 + magic / (tau - 0.5));
+    // per-column relaxation rates: uniform except a viscosity sponge before the outlet
+    this.colOmP = new Float64Array(nx).fill(this.omP);
+    this.colOmM = new Float64Array(nx).fill(this.omM);
+    if (spongeW > 0) {
+      for (let x = nx - spongeW; x < nx; x++) {
+        const t = (x - (nx - spongeW)) / spongeW;
+        const tl = tau + (spongeTau - tau) * t * t;
+        this.colOmP[x] = 1 / tl;
+        this.colOmM[x] = 1 / (0.5 + magic / (tl - 0.5));
+      }
+    }
     this.f = new Float64Array(nx * ny * 9);
     this.g = new Float64Array(nx * ny * 9);
     this.steps = 0;
+    // running time-averages at the probe plane (the flow is quasi-periodic:
+    // the jet flaps in the wide diffuser, so instantaneous profiles oscillate)
+    this.avgU = new Float64Array(ny);
+    this.avgIn = 0; this.avgOut = 0; this.avgCount = 0;
     this.inletCells = []; this.outletCells = [];
     for (let i = 0; i < nx * ny; i++) {
       if (mask[i] === INLET) this.inletCells.push(i);
@@ -43,7 +64,7 @@ export class LBM {
   step(n = 1) { for (let s = 0; s < n; s++) this._step(); return this.steps; }
 
   _step() {
-    const { nx, ny, mask, f, g, omP, omM, periodic, smag, tau } = this;
+    const { nx, ny, mask, f, g, periodic, smag, tau, colOmP, colOmM } = this;
     const fe = new Float64Array(9);
     for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
       const c = y * nx + x;
@@ -53,7 +74,7 @@ export class LBM {
       for (let i = 0; i < 9; i++) { const fi = f[b + i]; rho += fi; mx += fi * CX[i]; my += fi * CY[i]; }
       const ux = mx / rho, uy = my / rho;
       for (let i = 0; i < 9; i++) fe[i] = feq(i, rho, ux, uy);
-      let oP = omP, oM = omM;
+      let oP = colOmP[x], oM = colOmM[x];
       if (smag > 0) { // Smagorinsky: raise effective tau from non-equilibrium stress
         let pxx = 0, pyy = 0, pxy = 0;
         for (let i = 0; i < 9; i++) {
@@ -81,10 +102,48 @@ export class LBM {
     this._applyOutlet(g);
     this.f = g; this.g = f;                      // ping-pong (old f becomes scratch)
     this.steps++;
+    this._accumulate();
+  }
+
+  _accumulate() {
+    const { nx, ny, mask, f, probeCol, avgU } = this;
+    let fin = 0, fout = 0;
+    for (let x = 0; x < nx; x++) {
+      if (mask[x] !== INLET || mask[nx + x] === SOLID) continue;
+      const b = (nx + x) * 9;
+      let r = 0, my = 0;
+      for (let i = 0; i < 9; i++) { r += f[b + i]; my += f[b + i] * CY[i]; }
+      fin += my / r;
+    }
+    for (let y = 0; y < ny; y++) {
+      const c = y * nx + probeCol;
+      if (mask[c] === SOLID) continue;
+      const b = c * 9;
+      let r = 0, mx = 0;
+      for (let i = 0; i < 9; i++) { r += f[b + i]; mx += f[b + i] * CX[i]; }
+      const u = mx / r;
+      avgU[y] += u; fout += u;
+    }
+    this.avgIn += fin; this.avgOut += fout; this.avgCount++;
+  }
+
+  resetAverage() { this.avgU.fill(0); this.avgIn = 0; this.avgOut = 0; this.avgCount = 0; }
+
+  // time-averaged exit profile and fluxes since the last resetAverage()
+  timeAveraged() {
+    const { nx, ny, mask, probeCol, avgU, avgCount } = this;
+    const n = Math.max(1, avgCount);
+    const ys = [], us = [];
+    for (let y = 0; y < ny; y++) {
+      if (mask[y * nx + probeCol] === SOLID) continue;
+      ys.push(y); us.push(avgU[y] / n);
+    }
+    return { y: Int32Array.from(ys), u: Float32Array.from(us),
+             in: this.avgIn / n, out: this.avgOut / n, samples: avgCount };
   }
 
   _applyInlet(g) {
-    const v = this.uIn;
+    const v = this.uIn * (this.ramp > 0 ? Math.min(1, this.steps / this.ramp) : 1);
     for (const c of this.inletCells) {
       const b = c * 9;
       const S = g[b] + g[b + 1] + g[b + 3];
@@ -108,6 +167,57 @@ export class LBM {
     }
   }
 
+  isStable() {
+    const { nx, ny, mask, f } = this;
+    for (let c = 0; c < nx * ny; c += 17) {          // sampled scan
+      if (mask[c] === SOLID) continue;
+      const b = c * 9;
+      let r = 0, mx = 0, my = 0;
+      for (let i = 0; i < 9; i++) { const fi = f[b + i]; r += fi; mx += fi * CX[i]; my += fi * CY[i]; }
+      if (!Number.isFinite(r) || r <= 0) return false;
+      if ((mx * mx + my * my) / (r * r) > 0.4 * 0.4) return false;
+    }
+    return true;
+  }
+
+  // inlet flux (sum uy over duct row 1) and outlet flux (sum ux at probeCol)
+  fluxes() {
+    const { nx, ny, mask, f, probeCol } = this;
+    let fin = 0, fout = 0;
+    for (let x = 0; x < nx; x++) {
+      const c = nx + x;                               // row y=1
+      if (mask[c] === SOLID || mask[x] !== INLET) continue;
+      const b = c * 9;
+      let r = 0, my = 0;
+      for (let i = 0; i < 9; i++) { r += f[b + i]; my += f[b + i] * CY[i]; }
+      fin += my / r;
+    }
+    for (let y = 0; y < ny; y++) {
+      const c = y * nx + probeCol;
+      if (mask[c] === SOLID) continue;
+      const b = c * 9;
+      let r = 0, mx = 0;
+      for (let i = 0; i < 9; i++) { r += f[b + i]; mx += f[b + i] * CX[i]; }
+      fout += mx / r;
+    }
+    return { in: fin, out: fout };
+  }
+
+  // streamwise velocity sampled at probeCol (the physical exit plane), fluid cells only
+  exitProfile() {
+    const { nx, ny, mask, f, probeCol } = this;
+    const ys = [], us = [];
+    for (let y = 0; y < ny; y++) {
+      const c = y * nx + probeCol;
+      if (mask[c] === SOLID) continue;
+      const b = c * 9;
+      let r = 0, mx = 0;
+      for (let i = 0; i < 9; i++) { r += f[b + i]; mx += f[b + i] * CX[i]; }
+      ys.push(y); us.push(mx / r);
+    }
+    return { y: Int32Array.from(ys), u: Float32Array.from(us) };
+  }
+
   macros() {
     const { nx, ny, mask, f } = this;
     const rho = new Float32Array(nx * ny), ux = new Float32Array(nx * ny), uy = new Float32Array(nx * ny);
@@ -120,4 +230,24 @@ export class LBM {
     }
     return { rho, ux, uy };
   }
+}
+
+// std/mean of the exit profile: 0 = perfect plug flow, grows unbounded.
+// Used as the optimizer cost (stays informative where the clamped score saturates).
+export function nonUniformity(profile) {
+  const n = profile.length;
+  if (!n) return Infinity;
+  let mean = 0;
+  for (const v of profile) mean += v;
+  mean /= n;
+  if (mean <= 1e-12) return Infinity;
+  let varSum = 0;
+  for (const v of profile) varSum += (v - mean) * (v - mean);
+  return Math.sqrt(varSum / n) / mean;
+}
+
+// display score: 1 - std/mean, clamped to [0, 1]
+export function uniformity(profile) {
+  const nu = nonUniformity(profile);
+  return Number.isFinite(nu) ? Math.max(0, Math.min(1, 1 - nu)) : 0;
 }

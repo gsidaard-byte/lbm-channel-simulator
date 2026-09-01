@@ -57,13 +57,17 @@ function distToSeg(px, py, ax, ay, bx, by) {
 }
 
 // Rasterize params to a mask grid. dxMM = cell size in mm.
-// Returns {ok, error?, mask, nx, ny, dx, yc, margin, meta:{connected, exitHeight, totalLen}}
-export function buildMask(p, dxMM, margin = 2) {
+// A numerical buffer of `bufferW` columns is appended after the physical exit
+// plane; the solver puts a viscosity sponge there so vortices leave without
+// reflecting off the outlet. meta.probeCol is the physical exit plane.
+// Returns {ok, error?, mask, nx, ny, dx, yc, margin,
+//          meta:{connected, exitHeight, totalLen, probeCol, bufferW}}
+export function buildMask(p, dxMM, margin = 2, bufferW = 18) {
   const bad = violations(p);
   if (bad.length) return { ok: false, error: `constraint violated: ${bad.join(', ')}` };
   const der = derived(p);
   const H = Math.max(der.exitHeight + 2 * margin * dxMM, 2 * (p.d4 / 2 + p.d2 + 10));
-  const nx = Math.ceil(der.totalLen / dxMM) + margin;
+  const nx = Math.ceil(der.totalLen / dxMM) + margin + bufferW;
   const ny = Math.ceil(H / dxMM);
   const yc = (ny * dxMM) / 2;
   const Cy = yc - p.d4 / 2 - p.d2;      // duct bottom / turn center y
@@ -96,7 +100,8 @@ export function buildMask(p, dxMM, margin = 2) {
     const dy = Math.abs(y - yc);
     if (x >= xt && x <= xd && dy <= p.d4 / 2) return true;                        // throat
     if (x >= xd && x <= xe && dy <= p.d4 / 2 + (x - xd) * t1) return true;        // diffuser
-    if (x >= xe && x <= xEnd && dy <= der.exitHeight / 2) return true;            // exit
+    if (x >= xe && x <= xEnd + (bufferW + 2) * dxMM && dy <= der.exitHeight / 2)
+      return true;                                                                // exit + numerical buffer
     return false;
   };
 
@@ -132,6 +137,8 @@ export function buildMask(p, dxMM, margin = 2) {
       if (!seen[j] && mask[j] !== SOLID) { seen[j] = 1; q.push(j); }
     }
   }
+  const probeCol = Math.min(nx - 3, margin + Math.round(der.totalLen / dxMM) - 1);
   return { ok: true, mask, nx, ny, dx: dxMM, yc, margin,
-           meta: { connected, exitHeight: der.exitHeight, totalLen: der.totalLen } };
+           meta: { connected, exitHeight: der.exitHeight, totalLen: der.totalLen,
+                   probeCol, bufferW } };
 }

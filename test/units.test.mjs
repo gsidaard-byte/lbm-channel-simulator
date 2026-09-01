@@ -19,18 +19,19 @@ test('calibration round-trip', () => {
   approx(mdotFromHz(42), 11.5e-3, 1e-4);
 });
 
-test('latticeParams honors Mach cap when viscosity allows', () => {
-  const lp = latticeParams({ dxM: 5e-4, uMaxPhys: 0.02 });
-  approx(lp.uLat, 0.1, 1e-9, 'uLat');
-  ok(lp.tau >= 0.51, 'tau floor');
+test('latticeParams matches physical viscosity for slow flows', () => {
+  const lp = latticeParams({ dxM: 5e-4, uMaxPhys: 0.002 });
+  approx(lp.uLat, 0.08, 1e-9, 'uLat is Mach-set');
   approx(NU * lp.dt / (5e-4 * 5e-4), (lp.tau - 0.5) / 3, 1e-12, 'nu consistency');
+  approx(lp.reScale, 1, 1e-9, 'no Re capping');
+  ok(lp.warnings.length === 0);
 });
 
-test('latticeParams enforces tau floor for fast flows', () => {
+test('latticeParams caps cell Reynolds for fast flows', () => {
   const lp = latticeParams({ dxM: 5e-4, uMaxPhys: 0.2 });
-  approx(lp.tau, 0.51, 1e-9);
-  ok(lp.uLat > 0.1, 'accepts higher lattice velocity');
-  ok(lp.warnings.includes('smagorinsky-recommended'));
+  ok(lp.warnings.includes('reynolds-capped'));
+  approx(lp.uLat / ((lp.tau - 0.5) / 3), 6, 1e-9, 'cell Re at the cap');
+  ok(lp.reScale < 1, 'effective Re reduced');
 });
 
 test('unit round-trip: physical <-> lattice velocity', () => {
