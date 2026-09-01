@@ -11,6 +11,7 @@
   <h1>LBM Channel Simulator</h1>
   <nav>
     <button id="tab-simulate" class="tab active">Simulate</button>
+    <button id="tab-advanced" class="tab">Advanced</button>
     <button id="tab-optimize" class="tab">Optimize</button>
   </nav>
 </header>
@@ -31,6 +32,22 @@
       <div id="sim-stats" class="stats"></div>
     </div>
   </section>
+  <section id="panel-advanced" class="panel">
+    <div id="adv-controls" class="controls"></div>
+    <div class="viz">
+      <div id="adv-banner" class="banner hidden"></div>
+      <canvas id="field-canvas-adv" width="920" height="560"></canvas>
+      <div class="viz-row">
+        <canvas id="profile-canvas-adv" width="460" height="220"></canvas>
+        <div>
+          <div class="score-label">Exit uniformity</div>
+          <div id="score-value-adv">–</div>
+          <canvas id="score-spark-adv" width="220" height="48"></canvas>
+        </div>
+      </div>
+      <div id="adv-stats" class="stats"></div>
+    </div>
+  </section>
   <section id="panel-optimize" class="panel">
     <div id="opt-controls" class="controls"></div>
     <div class="viz">
@@ -44,16 +61,21 @@
   </section>
 </main>
 <script type="module">
-  for (const name of ['simulate', 'optimize']) {
+  const sim = await import('./js/ui-simulate.js').catch(() => null);
+  const adv = await import('./js/ui-advanced.js').catch(() => null);
+  const opt = await import('./js/ui-optimize.js').catch(() => null);
+  for (const name of ['simulate', 'advanced', 'optimize']) {
     document.getElementById(`tab-${name}`).addEventListener('click', () => {
       document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
       document.getElementById(`tab-${name}`).classList.add('active');
       document.getElementById(`panel-${name}`).classList.add('active');
+      // pause the tab that isn't visible so the two sims don't compete for CPU
+      sim?.setActive(name === 'simulate' || name === 'optimize');
+      adv?.setActive(name === 'advanced');
     });
   }
-  const sim = await import('./js/ui-simulate.js').catch(() => null);
-  const opt = await import('./js/ui-optimize.js').catch(() => null);
   if (sim) sim.init();
+  if (adv) adv.init();
   if (opt && sim) opt.init({ sendToSimulate: sim.setParams, getParams: sim.getParams });
 </script>
 </body>

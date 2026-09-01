@@ -1,5 +1,7 @@
 // Interactive simulation worker. Runs the LBM continuously and posts frames.
+// Handles both designs: 'classic' (buildMask) and 'advanced' (buildMaskAdvanced).
 import { buildMask } from './geometry.js';
+import { buildMaskAdvanced } from './geometry-adv.js';
 import { LBM, uniformity } from './lbm.js';
 import { inletVelocity, throatReynolds, latticeParams } from './units.js';
 
@@ -26,25 +28,30 @@ onmessage = (e) => {
 function configure(m) {
   running = false;
   cfg = m;
-  const geo = buildMask(m.params, m.dxMM);
+  const advanced = m.design === 'advanced';
+  const geo = advanced ? buildMaskAdvanced(m.params, m.dxMM) : buildMask(m.params, m.dxMM);
   if (!geo.ok) { postMessage({ type: 'error', message: geo.error }); return; }
   if (!geo.meta.connected) { postMessage({ type: 'error', message: 'geometry not connected inlet→outlet' }); return; }
   cfg.geo = geo;
   const dxM = m.dxMM / 1000;
-  uPhysIn = inletVelocity(m.mdot, m.params.d1 / 1000, m.depthMM / 1000);
-  const uMaxPhys = uPhysIn * Math.max(1, m.params.d1 / m.params.d4);
+  const d1 = advanced ? 12.7 : m.params.d1;
+  const throatH = advanced ? geo.meta.throatH : m.params.d4;
+  cfg.d1 = d1;
+  uPhysIn = inletVelocity(m.mdot, d1 / 1000, m.depthMM / 1000);
+  const uMaxPhys = uPhysIn * Math.max(1, d1 / throatH);
   lp = latticeParams({ dxM, uMaxPhys });
   sim = new LBM({ nx: geo.nx, ny: geo.ny, mask: geo.mask, tau: lp.tau,
                   uIn: uPhysIn * lp.dt / dxM, ramp: 800,
                   probeCol: geo.meta.probeCol, spongeW: geo.meta.bufferW,
-                  smagorinsky: m.smag || 0 });
+                  smagorinsky: m.smag || 0, porous: geo.porous || null });
   averaging = false; rebased = false;
   u2phys = dxM / lp.dt;           // lattice velocity -> m/s
   inletCount = 0;                 // inlet cells counted the same way fluxes() does
   for (let x = 0; x < geo.nx; x++)
     if (geo.mask[x] === 2 && geo.mask[geo.nx + x] !== 0) inletCount++;
   postMessage({ type: 'geometry', nx: geo.nx, ny: geo.ny, dx: geo.dx, yc: geo.yc,
-                mask: geo.mask.slice(), meta: geo.meta });
+                mask: geo.mask.slice(), porous: geo.porous ? geo.porous.slice() : null,
+                meta: geo.meta });
   stepCount0 = 0; t0 = 0;
   running = true;
   loop();
@@ -124,8 +131,8 @@ function postFrame(now) {
     avgProfile: avg ? { y: avg.y, u: avg.u } : null,
     score: avg ? uniformity(avg.u) : null,
     stats: {
-      re: Math.round(throatReynolds(uPhysIn, cfg.params.d1 / 1000)),
-      reEff: Math.round(throatReynolds(uPhysIn, cfg.params.d1 / 1000) * lp.reScale),
+      re: Math.round(throatReynolds(uPhysIn, cfg.d1 / 1000)),
+      reEff: Math.round(throatReynolds(uPhysIn, cfg.d1 / 1000) * lp.reScale),
       mach: lp.uLat.toFixed(3), tau: lp.tau.toFixed(4),
       stepsPerSec: Math.round(stepsPerSec),
       tPhys: (sim.steps * lp.dt).toFixed(2),

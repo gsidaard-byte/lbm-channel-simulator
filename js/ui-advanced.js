@@ -1,57 +1,53 @@
-// Simulate tab: sliders for the classic parameterized channel + shared viz.
-import { DEFAULT_PARAMS, CAPS, derived, violations, clampParams } from './geometry.js';
+// Advanced tab: flow-conditioning design (bend vanes, cambered rows, screens).
+// Inlet, exit, and total length are fixed; uniformity comes from conditioning.
+import { ADV_DEFAULTS, advClamp } from './geometry-adv.js';
 import { MDOT_MIN, MDOT_MAX, hzFromMdot } from './units.js';
 import { renderField, drawProfilePlot, drawSpark, statsHtml } from './viz.js';
 
 const SLIDERS = [
-  { key: 'd1', label: 'd₁ mm', min: 12.7, max: 12.7, step: 0.1 },   // fixed by hardware
-  { key: 'd2', label: 'd₂ mm', min: 6, max: 40, step: 0.5 },
-  { key: 'd3', label: 'd₃ mm', min: 5, max: 60, step: 0.5 },
-  { key: 'd4', label: 'd₄ mm', min: 8, max: 40, step: 0.5 },
-  { key: 'd5', label: 'd₅ mm', min: 40, max: 200, step: 1 },
-  { key: 'd6', label: 'd₆ mm', min: 8, max: 60, step: 0.5 },
-  { key: 'theta1', label: 'θ₁ °', min: 3, max: 40, step: 0.25 },
-  { key: 'theta2', label: 'θ₂ °', min: 0, max: 45, step: 0.25 },
+  { key: 'th', label: 'throat', min: 8, max: 40, step: 0.5 },
+  { key: 'tl', label: 'thr len', min: 5, max: 40, step: 0.5 },
+  { key: 'Lexp', label: 'Lexp', min: 60, max: 186, step: 1 },
   { key: 's0', label: 's₀ wall', min: 0, max: 1.5, step: 0.05 },
   { key: 's1', label: 's₁ wall', min: 0, max: 1.5, step: 0.05 },
-  { key: 'nVanes', label: 'vanes', min: 0, max: 10, step: 1 },
-  { key: 'vaneLen', label: 'Lv mm', min: 5, max: 60, step: 1 },
-  { key: 'vanePos', label: 'xv mm', min: 0, max: 255, step: 1 },
+  { key: 'bendVanes', label: 'bend v.', min: 0, max: 4, step: 1 },
+  { key: 'r1n', label: 'row1 n', min: 0, max: 12, step: 1 },
+  { key: 'r1x', label: 'row1 x', min: 3, max: 180, step: 1 },
+  { key: 'r1c', label: 'row1 c', min: 8, max: 60, step: 1 },
+  { key: 'r2n', label: 'row2 n', min: 0, max: 16, step: 1 },
+  { key: 'r2x', label: 'row2 x', min: 3, max: 180, step: 1 },
+  { key: 'r2c', label: 'row2 c', min: 8, max: 60, step: 1 },
+  { key: 'sc1x', label: 'scr1 x', min: 5, max: 195, step: 1 },
+  { key: 'sc1s', label: 'scr1 σ', min: 0, max: 0.9, step: 0.05 },
+  { key: 'sc2x', label: 'scr2 x', min: 5, max: 195, step: 1 },
+  { key: 'sc2s', label: 'scr2 σ', min: 0, max: 0.9, step: 0.05 },
 ];
 const RES = { coarse: 1.0, medium: 0.5, fine: 0.35 };
+const INT_KEYS = new Set(['bendVanes', 'r1n', 'r2n']);
 
-let worker = null, params = { ...DEFAULT_PARAMS }, mdot = 6e-3, dxMM = RES.coarse;
+let worker = null, params = { ...ADV_DEFAULTS }, mdot = 6e-3, dxMM = RES.coarse;
 let geo = null, debounceT = 0, sparkHist = [], els = {};
-let manualPause = false, autoPaused = false;
+let started = false, manualPause = false, autoPaused = false;
 
 export function init() {
   buildControls();
-  worker = new Worker('./js/sim-worker.js', { type: 'module' });
-  worker.onmessage = onWorkerMessage;
-  reconfigure();
 }
 
 export function setActive(active) {
+  if (active && !started) {           // lazy start on first activation
+    started = true;
+    worker = new Worker('./js/sim-worker.js', { type: 'module' });
+    worker.onmessage = onWorkerMessage;
+    reconfigure();
+    return;
+  }
   if (!worker) return;
   if (!active && !manualPause) { worker.postMessage({ type: 'pause' }); autoPaused = true; }
   else if (active && autoPaused) { worker.postMessage({ type: 'resume' }); autoPaused = false; }
 }
 
-export function setParams(p) {
-  params = clampParams({ ...params, ...p });
-  for (const s of SLIDERS) {
-    els[s.key].range.value = params[s.key];
-    els[s.key].num.value = params[s.key];
-  }
-  updateReadouts();
-  reconfigure();
-  document.getElementById('tab-simulate').click();
-}
-
-export function getParams() { return { ...params }; }
-
 function buildControls() {
-  const root = document.getElementById('sim-controls');
+  const root = document.getElementById('adv-controls');
   for (const s of SLIDERS) {
     const row = document.createElement('div');
     row.className = 'ctl';
@@ -60,8 +56,8 @@ function buildControls() {
       <input type="number" min="${s.min}" max="${s.max}" step="${s.step}" value="${params[s.key]}">`;
     const [range, num] = row.querySelectorAll('input');
     const onChange = (v) => {
-      params[s.key] = s.key === 'nVanes' ? Math.round(+v) : +v;
-      params = clampParams(params);
+      params[s.key] = INT_KEYS.has(s.key) ? Math.round(+v) : +v;
+      params = advClamp(params);
       range.value = num.value = params[s.key];
       updateReadouts();
       clearTimeout(debounceT);
@@ -93,52 +89,48 @@ function buildControls() {
       <option value="coarse" selected>coarse (1.0 mm)</option>
       <option value="medium">medium (0.5 mm)</option>
       <option value="fine">fine (0.35 mm)</option></select>
-    <button class="action" id="btn-pause">Pause</button>`;
+    <button class="action" id="btn-pause-adv">Pause</button>`;
   resRow.querySelector('select').addEventListener('change', (e) => {
     dxMM = RES[e.target.value]; reconfigure();
   });
   root.appendChild(resRow);
-  document.getElementById('btn-pause').addEventListener('click', (e) => {
+  document.getElementById('btn-pause-adv').addEventListener('click', (e) => {
     manualPause = !manualPause;
-    worker.postMessage({ type: manualPause ? 'pause' : 'resume' });
+    worker?.postMessage({ type: manualPause ? 'pause' : 'resume' });
     e.target.textContent = manualPause ? 'Resume' : 'Pause';
   });
 
   const fieldRow = document.createElement('div');
   fieldRow.className = 'ctl';
-  fieldRow.innerHTML = `<label>field</label><select id="sel-field">
+  fieldRow.innerHTML = `<label>field</label><select id="sel-field-adv">
       <option value="speed" selected>speed |u|</option>
       <option value="ux">u (axial)</option>
       <option value="uy">v (vertical)</option>
       <option value="vort">vorticity ω</option></select><span></span>`;
   fieldRow.querySelector('select').addEventListener('change', (e) => {
-    worker.postMessage({ type: 'setField', field: e.target.value });
+    worker?.postMessage({ type: 'setField', field: e.target.value });
   });
   root.appendChild(fieldRow);
 
   const ro = document.createElement('div');
-  ro.id = 'geo-readout'; ro.className = 'readout';
+  ro.id = 'adv-readout'; ro.className = 'readout';
   root.appendChild(ro);
   const vecToggle = document.createElement('label');
-  vecToggle.innerHTML = `<input type="checkbox" id="chk-vec"> velocity vectors`;
+  vecToggle.innerHTML = `<input type="checkbox" id="chk-vec-adv"> velocity vectors`;
   root.appendChild(vecToggle);
   updateReadouts();
 }
 
 function updateReadouts() {
-  const d = derived(params), bad = violations(params).length > 0;
-  const ro = document.getElementById('geo-readout');
-  ro.className = 'readout' + (bad ? ' bad' : '');
-  ro.textContent =
-    `length ${d.totalLen.toFixed(1)} / ${CAPS.totalLenMM} mm · ` +
-    `exit ${d.exitHeight.toFixed(1)} / ${CAPS.exitHeightMM} mm · ` +
-    `${hzFromMdot(mdot).toFixed(1)} Hz`;
+  document.getElementById('adv-readout').textContent =
+    `inlet 12.7 · exit 203.2 · length 228.6 mm (fixed) · ${hzFromMdot(mdot).toFixed(1)} Hz`;
 }
 
 function reconfigure() {
-  document.getElementById('sim-banner').classList.add('hidden');
+  if (!worker) return;
+  document.getElementById('adv-banner').classList.add('hidden');
   sparkHist = [];
-  worker.postMessage({ type: 'configure', design: 'classic', params, mdot, dxMM, depthMM: 12.7, smag: 0 });
+  worker.postMessage({ type: 'configure', design: 'advanced', params, mdot, dxMM, depthMM: 12.7, smag: 0 });
 }
 
 function onWorkerMessage(e) {
@@ -146,27 +138,27 @@ function onWorkerMessage(e) {
   if (m.type === 'geometry') { geo = m; return; }
   if (m.type === 'error') { showBanner(`Geometry error: ${m.message}`); return; }
   if (m.type === 'unstable') {
-    showBanner('Simulation went unstable — lower the flow rate or coarsen the grid.');
+    showBanner('Simulation went unstable — lower the flow rate or reduce vane counts.');
     return;
   }
   if (m.type === 'frame') drawFrame(m);
 }
 
 function showBanner(text) {
-  const b = document.getElementById('sim-banner');
+  const b = document.getElementById('adv-banner');
   b.textContent = text; b.classList.remove('hidden');
 }
 
 function drawFrame(m) {
   if (!geo) return;
-  renderField(document.getElementById('field-canvas'), geo, m,
-              document.getElementById('chk-vec').checked);
-  drawProfilePlot(document.getElementById('profile-canvas'), m, geo);
-  document.getElementById('score-value').textContent = m.score == null ? '–' : m.score.toFixed(3);
+  renderField(document.getElementById('field-canvas-adv'), geo, m,
+              document.getElementById('chk-vec-adv').checked);
+  drawProfilePlot(document.getElementById('profile-canvas-adv'), m, geo);
+  document.getElementById('score-value-adv').textContent = m.score == null ? '–' : m.score.toFixed(3);
   if (m.score != null) {
     sparkHist.push(m.score);
     if (sparkHist.length > 220) sparkHist.shift();
-    drawSpark(document.getElementById('score-spark'), sparkHist);
+    drawSpark(document.getElementById('score-spark-adv'), sparkHist);
   }
-  document.getElementById('sim-stats').innerHTML = statsHtml(m.stats);
+  document.getElementById('adv-stats').innerHTML = statsHtml(m.stats);
 }
