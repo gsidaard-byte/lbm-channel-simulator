@@ -55,9 +55,12 @@ if ('fix-boundary' in args) {
 }
 const mdot = (parseFloat(args.mdot) || 6) * 1e-3;      // kg/s
 const dxMM = parseFloat(args.dx) || 0.5;               // mm
+const endTime = parseInt(args.endTime) || 4000;        // SIMPLE iterations
 const depthM = 0.0127;
 
-const p = advClamp({ ...ADV_DEFAULTS, scrMode: 'plate' });
+// optional geometry overrides: --params '{"sc1s":0.8,...}'
+const overrides = args.params ? JSON.parse(args.params) : {};
+const p = advClamp({ ...ADV_DEFAULTS, scrMode: 'plate', ...overrides });
 const g = buildMaskAdvanced(p, dxMM);
 if (!g.ok || !g.meta.connected) { console.error('geometry failed:', g.error); process.exit(1); }
 const { nx, ny, mask, margin } = g;
@@ -104,8 +107,8 @@ writeFileSync(join(out, 'constant', 'polyMesh', 'sets', 'fluid'),
 
 writeFileSync(join(out, 'system', 'controlDict'), hdr('dictionary', 'system', 'controlDict') + `
 application simpleFoam;
-startFrom latestTime; startTime 0; stopAt endTime; endTime 4000; deltaT 1;
-writeControl timeStep; writeInterval 4000; purgeWrite 2;
+startFrom latestTime; startTime 0; stopAt endTime; endTime ${endTime}; deltaT 1;
+writeControl timeStep; writeInterval ${endTime}; purgeWrite 2;
 writeFormat ascii; writePrecision 7; timeFormat general; timePrecision 6;
 `);
 
