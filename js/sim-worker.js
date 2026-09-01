@@ -8,7 +8,7 @@ const REBASE_STEPS = 12000;     // re-base once the flow is fully developed
 
 let sim = null, running = false, cfg = null, lp = null, uPhysIn = 0;
 let lastPost = 0, stepCount0 = 0, t0 = 0, averaging = false, rebased = false;
-let refMax = 0, inletCount = 0;
+let inletCount = 0, fieldMode = 'speed', u2phys = 1;
 
 // setTimeout is throttled to 1Hz in hidden tabs; MessageChannel isn't.
 const loopChan = new MessageChannel();
@@ -20,6 +20,7 @@ onmessage = (e) => {
   if (m.type === 'configure') configure(m);
   else if (m.type === 'pause') running = false;
   else if (m.type === 'resume' && sim) { running = true; t0 = 0; loop(); }
+  else if (m.type === 'setField') fieldMode = m.field;
 };
 
 function configure(m) {
@@ -38,11 +39,11 @@ function configure(m) {
                   probeCol: geo.meta.probeCol, spongeW: geo.meta.bufferW,
                   smagorinsky: m.smag || 0 });
   averaging = false; rebased = false;
-  refMax = 1.2 * lp.uLat;         // stable color-scale reference (slow-adapting)
+  u2phys = dxM / lp.dt;           // lattice velocity -> m/s
   inletCount = 0;                 // inlet cells counted the same way fluxes() does
   for (let x = 0; x < geo.nx; x++)
     if (geo.mask[x] === 2 && geo.mask[geo.nx + x] !== 0) inletCount++;
-  postMessage({ type: 'geometry', nx: geo.nx, ny: geo.ny, dx: geo.dx,
+  postMessage({ type: 'geometry', nx: geo.nx, ny: geo.ny, dx: geo.dx, yc: geo.yc,
                 mask: geo.mask.slice(), meta: geo.meta });
   stepCount0 = 0; t0 = 0;
   running = true;
@@ -66,20 +67,35 @@ function loop() {
 }
 
 function postFrame(now) {
-  const { nx, ny } = sim;
+  const { nx, ny, mask } = sim;
   const { ux, uy } = sim.macros();
+  // FIXED color scale per configuration (never changes over time):
+  // velocities span [0, 2*uLat] (seq) or [-2*uLat, 2*uLat] (div);
+  // vorticity spans +/- uLat/3 per cell. Values beyond the range saturate.
+  const vmaxLat = 2.0 * lp.uLat;
+  const wmaxLat = lp.uLat / 3;
   const speed = new Uint8Array(nx * ny);
-  let maxS = 1e-9;
-  const sMag = new Float32Array(nx * ny);
-  for (let c = 0; c < nx * ny; c++) {
-    const s = Math.hypot(ux[c], uy[c]);
-    sMag[c] = s;
-    if (s > maxS) maxS = s;
+  let kind = 'seq', vmaxDisp = vmaxLat * u2phys * 1000, unit = 'mm/s';
+  if (fieldMode === 'speed') {
+    for (let c = 0; c < nx * ny; c++)
+      speed[c] = Math.min(255, (Math.hypot(ux[c], uy[c]) / vmaxLat) * 255);
+  } else if (fieldMode === 'ux' || fieldMode === 'uy') {
+    kind = 'div';
+    // display convention: v positive upward (grid y points down)
+    const sgn = fieldMode === 'uy' ? -1 : 1;
+    const a = fieldMode === 'ux' ? ux : uy;
+    for (let c = 0; c < nx * ny; c++)
+      speed[c] = Math.max(0, Math.min(255, 128 + (sgn * a[c] / vmaxLat) * 127));
+  } else { // vorticity (z, y-up convention), central differences
+    kind = 'div'; vmaxDisp = wmaxLat / lp.dt; unit = '1/s';
+    speed.fill(128);
+    for (let y = 1; y < ny - 1; y++) for (let x = 1; x < nx - 1; x++) {
+      const c = y * nx + x;
+      if (mask[c] === 0) continue;
+      const w = -((uy[c + 1] - uy[c - 1]) / 2 - (ux[c + nx] - ux[c - nx]) / 2);
+      speed[c] = Math.max(0, Math.min(255, 128 + (w / wmaxLat) * 127));
+    }
   }
-  // Stable color scale: adapt the reference upward instantly but decay it very
-  // slowly, so colors don't pulse with the flapping jet's instantaneous max.
-  refMax = Math.max(maxS, refMax * 0.999, 1.2 * lp.uLat);
-  for (let c = 0; c < nx * ny; c++) speed[c] = Math.min(255, (sMag[c] / refMax) * 255);
   const stride = 6, vnx = Math.floor(nx / stride), vny = Math.floor(ny / stride);
   const vux = new Float32Array(vnx * vny), vuy = new Float32Array(vnx * vny);
   for (let j = 0; j < vny; j++) for (let i = 0; i < vnx; i++) {
@@ -97,7 +113,8 @@ function postFrame(now) {
   const stepsPerSec = dtWall > 0.05 ? (sim.steps - stepCount0) / dtWall : 0;
   stepCount0 = sim.steps; t0 = now;               // per-frame rate, not cumulative
   postMessage({
-    type: 'frame', speed, maxSpeed: refMax,
+    type: 'frame', speed, maxSpeed: vmaxLat, u2phys,
+    fieldMeta: { kind, vmaxDisp, unit, mode: fieldMode },
     vec: { stride, nx: vnx, ny: vny, ux: vux, uy: vuy },
     profile: { y: inst.y, u: inst.u },
     avgProfile: avg ? { y: avg.y, u: avg.u } : null,

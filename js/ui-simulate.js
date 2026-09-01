@@ -93,6 +93,18 @@ function buildControls() {
     e.target.textContent = paused ? 'Resume' : 'Pause';
   });
 
+  const fieldRow = document.createElement('div');
+  fieldRow.className = 'ctl';
+  fieldRow.innerHTML = `<label>field</label><select id="sel-field">
+      <option value="speed" selected>speed |u|</option>
+      <option value="ux">u (axial)</option>
+      <option value="uy">v (vertical)</option>
+      <option value="vort">vorticity ω</option></select><span></span>`;
+  fieldRow.querySelector('select').addEventListener('change', (e) => {
+    worker.postMessage({ type: 'setField', field: e.target.value });
+  });
+  root.appendChild(fieldRow);
+
   const ro = document.createElement('div');
   ro.id = 'geo-readout'; ro.className = 'readout';
   root.appendChild(ro);
@@ -141,27 +153,71 @@ function cmap(t) { // 0..1 -> deep blue → cyan → yellow → red
   return [0, 1, 2].map(i => Math.round(stops[k][i] + f * (stops[k + 1][i] - stops[k][i])));
 }
 
+function cmapDiv(t) { // 0..1, 0.5 = zero -> cyan-blue | near-bg dark | orange-red
+  const neg = [80, 180, 255], mid = [25, 26, 34], pos = [255, 120, 50];
+  const [a, b, f] = t < 0.5 ? [mid, neg, (0.5 - t) * 2] : [mid, pos, (t - 0.5) * 2];
+  return [0, 1, 2].map(i => Math.round(a[i] + f * (b[i] - a[i])));
+}
+
+function buildLut(kind) {
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const [r, g, b] = kind === 'div' ? cmapDiv(i / 255) : cmap(i / 255);
+    lut[i * 3] = r; lut[i * 3 + 1] = g; lut[i * 3 + 2] = b;
+  }
+  return lut;
+}
+const LUTS = { seq: buildLut('seq'), div: buildLut('div') };
+
+const CBAR_H = 34; // reserved strip at the bottom of the field canvas
+
+function drawColorbar(ctx, W, H, meta) {
+  const x0 = W - 260, x1 = W - 40, y0 = H - 24, h = 10;
+  const lut = LUTS[meta.kind];
+  for (let x = x0; x <= x1; x++) {
+    const i = Math.round(((x - x0) / (x1 - x0)) * 255) * 3;
+    ctx.fillStyle = `rgb(${lut[i]},${lut[i + 1]},${lut[i + 2]})`;
+    ctx.fillRect(x, y0, 1, h);
+  }
+  ctx.strokeStyle = '#555'; ctx.strokeRect(x0 - 0.5, y0 - 0.5, x1 - x0 + 1, h + 1);
+  ctx.fillStyle = '#9ab'; ctx.font = '11px system-ui'; ctx.textAlign = 'center';
+  const v = meta.vmaxDisp, fmt = (x) => Math.abs(x) >= 100 ? x.toFixed(0) : x.toPrecision(3);
+  if (meta.kind === 'div') {
+    ctx.fillText(`-${fmt(v)}`, x0, H - 4);
+    ctx.fillText('0', (x0 + x1) / 2, H - 4);
+    ctx.fillText(`+${fmt(v)} ${meta.unit}`, x1, H - 4);
+  } else {
+    ctx.fillText('0', x0, H - 4);
+    ctx.fillText(`${fmt(v)} ${meta.unit}`, x1, H - 4);
+  }
+  const names = { speed: 'speed |u|', ux: 'u (axial)', uy: 'v (vertical)', vort: 'vorticity ω' };
+  ctx.textAlign = 'left';
+  ctx.fillText(names[meta.mode] || meta.mode, 8, H - 4);
+}
+
 function drawFrame(m) {
   if (!geo) return;
   const { nx, ny, mask } = geo;
   const canvas = document.getElementById('field-canvas');
   const ctx = canvas.getContext('2d');
+  const lut = LUTS[m.fieldMeta.kind];
   const img = new ImageData(nx, ny);
   for (let c = 0; c < nx * ny; c++) {
     const o = c * 4;
     if (mask[c] === SOLID) { img.data[o] = img.data[o + 1] = img.data[o + 2] = 58; }
     else {
-      const [r, g, b] = cmap(m.speed[c] / 255);
-      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b;
+      const i = m.speed[c] * 3;
+      img.data[o] = lut[i]; img.data[o + 1] = lut[i + 1]; img.data[o + 2] = lut[i + 2];
     }
     img.data[o + 3] = 255;
   }
   const off = new OffscreenCanvas(nx, ny);
   off.getContext('2d').putImageData(img, 0, 0);
-  const scale = Math.min(canvas.width / nx, canvas.height / ny);
+  const scale = Math.min(canvas.width / nx, (canvas.height - CBAR_H) / ny);
   ctx.fillStyle = '#0c0d10'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(off, 0, 0, nx * scale, ny * scale);
+  drawColorbar(ctx, canvas.width, canvas.height, m.fieldMeta);
   if (document.getElementById('chk-vec').checked) {
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.beginPath();
@@ -190,33 +246,77 @@ function drawFrame(m) {
     (s.averaging ? '' : '<span style="color:#fb5">developing…</span>');
 }
 
+// round a value to a "nice" tick spacing (1/2/5 x 10^n)
+function niceStep(range, n) {
+  const raw = range / n, mag = 10 ** Math.floor(Math.log10(raw)), r = raw / mag;
+  return (r >= 5 ? 5 : r >= 2 ? 2 : 1) * mag;
+}
+
 function drawProfile(m) {
   const c = document.getElementById('profile-canvas'), ctx = c.getContext('2d');
   ctx.fillStyle = '#0c0d10'; ctx.fillRect(0, 0, c.width, c.height);
   const inst = m.profile.u;
   if (!inst.length) return;
-  let umax = 1e-9;
-  for (const v of inst) umax = Math.max(umax, Math.abs(v));
-  if (m.avgProfile) for (const v of m.avgProfile.u) umax = Math.max(umax, Math.abs(v));
-  const sx = (v) => c.width / 2 + (v / (umax * 1.1)) * (c.width / 2 - 12);
-  const line = (u, style, width) => {
+  const toMMS = m.u2phys * 1000;                 // lattice velocity -> mm/s
+  const dxMMg = geo ? geo.dx : 1, ycMM = geo ? geo.yc : 0;
+  const instP = Array.from(inst, v => v * toMMS);
+  const avgP = m.avgProfile ? Array.from(m.avgProfile.u, v => v * toMMS) : null;
+  const ref = avgP || instP;
+  let mean = 0; for (const v of ref) mean += v; mean /= ref.length;
+  let uMin = 0, uMax = 1e-9;
+  for (const v of instP) { uMin = Math.min(uMin, v); uMax = Math.max(uMax, v); }
+  if (avgP) for (const v of avgP) { uMin = Math.min(uMin, v); uMax = Math.max(uMax, v); }
+  uMax = Math.max(uMax, mean) * 1.12; uMin = Math.min(uMin, 0) * 1.12 - 0.02 * uMax;
+  const posMM = Array.from(m.profile.y, (row) => (row + 0.5) * dxMMg - ycMM);
+  const yMin = posMM[0], yMax = posMM[posMM.length - 1];
+  // plot area
+  const ML = 46, MR = 8, MT = 6, MB = 26;
+  const PW = c.width - ML - MR, PH = c.height - MT - MB;
+  const sx = (u) => ML + ((u - uMin) / (uMax - uMin)) * PW;
+  const syPos = (p) => MT + ((p - yMin) / (yMax - yMin)) * PH;
+  // axes + ticks
+  ctx.strokeStyle = '#3a3f48'; ctx.lineWidth = 1;
+  ctx.strokeRect(ML + 0.5, MT + 0.5, PW, PH);
+  ctx.fillStyle = '#9ab'; ctx.font = '10px system-ui';
+  const ux0 = Math.ceil(uMin / niceStep(uMax - uMin, 5)) * niceStep(uMax - uMin, 5);
+  ctx.textAlign = 'center';
+  for (let u = ux0; u <= uMax; u += niceStep(uMax - uMin, 5)) {
+    const x = sx(u);
+    ctx.strokeStyle = '#23262d'; ctx.beginPath();
+    ctx.moveTo(x, MT); ctx.lineTo(x, MT + PH); ctx.stroke();
+    ctx.fillText(Math.abs(u) < 1e-9 ? '0' : u.toPrecision(2), x, c.height - 14);
+  }
+  ctx.textAlign = 'right';
+  const ys = niceStep(yMax - yMin, 5), py0 = Math.ceil(yMin / ys) * ys;
+  for (let p = py0; p <= yMax; p += ys) {
+    const y = syPos(p);
+    ctx.strokeStyle = '#23262d'; ctx.beginPath();
+    ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+    ctx.fillStyle = '#9ab';
+    ctx.fillText(p.toFixed(0), ML - 4, y + 3);
+  }
+  ctx.textAlign = 'center';
+  ctx.fillText('u (mm/s)', ML + PW / 2, c.height - 3);
+  ctx.save(); ctx.translate(10, MT + PH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('y (mm)', 0, 0); ctx.restore();
+  // zero line and plug-flow (mean) reference
+  ctx.strokeStyle = '#555'; ctx.beginPath();
+  ctx.moveTo(sx(0), MT); ctx.lineTo(sx(0), MT + PH); ctx.stroke();
+  ctx.strokeStyle = '#5c6'; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(sx(mean), MT); ctx.lineTo(sx(mean), MT + PH); ctx.stroke();
+  ctx.setLineDash([]);
+  const line = (arr, style, width) => {
     ctx.strokeStyle = style; ctx.lineWidth = width; ctx.beginPath();
-    const sy = (k) => 8 + (k / (u.length - 1)) * (c.height - 16);
-    for (let k = 0; k < u.length; k++) k ? ctx.lineTo(sx(u[k]), sy(k)) : ctx.moveTo(sx(u[k]), sy(k));
+    for (let k = 0; k < arr.length; k++) {
+      const x = sx(arr[k]), y = syPos(posMM[k]);
+      k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
     ctx.stroke();
   };
-  // zero line and mean (plug-flow) reference
-  ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(sx(0), 4); ctx.lineTo(sx(0), c.height - 4); ctx.stroke();
-  const ref = m.avgProfile ? m.avgProfile.u : inst;
-  let mean = 0; for (const v of ref) mean += v; mean /= ref.length;
-  ctx.strokeStyle = '#5c6'; ctx.setLineDash([5, 4]);
-  ctx.beginPath(); ctx.moveTo(sx(mean), 4); ctx.lineTo(sx(mean), c.height - 4); ctx.stroke();
-  ctx.setLineDash([]);
-  line(inst, 'rgba(106,176,255,0.35)', 1);                      // instantaneous
-  if (m.avgProfile) line(m.avgProfile.u, '#6ab0ff', 2);         // time-averaged
-  ctx.fillStyle = '#9ab'; ctx.font = '11px system-ui';
-  ctx.fillText('exit u(y): faint = instant, bold = averaged, dashed = plug', 10, c.height - 6);
+  line(instP, 'rgba(106,176,255,0.35)', 1);            // instantaneous
+  if (avgP) line(avgP, '#6ab0ff', 2);                  // time-averaged
+  ctx.textAlign = 'left'; ctx.fillStyle = '#9ab'; ctx.font = '10px system-ui';
+  ctx.fillText('faint: instant · bold: avg · dashed: plug', ML + 6, MT + 12);
 }
 
 function drawScore(score) {
