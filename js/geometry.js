@@ -58,7 +58,7 @@ export function clampParams(p) {
 // g'(1)=s1 (slopes as fractions of the straight-wall slope). s0=s1=1 -> g=xi
 // (straight); s0=s1=0 -> Bell-Mehta S-curve 10xi^3-15xi^4+6xi^5. Clamped to
 // [0,1] so the wall never bulges past the exit height or below the throat.
-function quinticG(xi, s0, s1) {
+export function quinticG(xi, s0, s1) {
   const A = 1 - s0, B = s1 - s0;
   const c3 = 10 * A - 4 * B, c4 = 7 * B - 15 * A, c5 = 6 * A - 3 * B;
   const g = s0 * xi + c3 * xi ** 3 + c4 * xi ** 4 + c5 * xi ** 5;
@@ -74,9 +74,9 @@ export function halfHeightAt(p, xmm) {
   return h0 + (h1 - h0) * quinticG((xmm - xd) / p.d5, p.s0 ?? 1, p.s1 ?? 1);
 }
 
-const smooth = (t) => t * t * (3 - 2 * t); // smoothstep
+export const smooth = (t) => t * t * (3 - 2 * t); // smoothstep
 
-function distToSeg(px, py, ax, ay, bx, by) {
+export function distToSeg(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-12;
   let t = ((px - ax) * dx + (py - ay) * dy) / L2;
   t = Math.max(0, Math.min(1, t));

@@ -1,5 +1,5 @@
 import { tests } from './harness.mjs';
-const mods = ['./units.test.mjs', './geometry.test.mjs', './lbm.test.mjs', './optimizer.test.mjs'];
+const mods = ['./units.test.mjs', './geometry.test.mjs', './geometry-adv.test.mjs', './lbm.test.mjs', './optimizer.test.mjs'];
 for (const m of mods) {
   try { await import(m); }
   catch (e) {
