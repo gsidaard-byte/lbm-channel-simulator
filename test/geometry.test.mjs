@@ -88,3 +88,47 @@ test('buildMask edge cases stay connected', () => {
 test('buildMask rejects violating params', () => {
   ok(!buildMask({ ...DEFAULT_PARAMS, d5: 400 }, 1.0).ok);
 });
+
+import { halfHeightAt } from '../js/geometry.js';
+
+test('quintic wall: straight recovery, S-curve, and endpoints', () => {
+  const p = { ...DEFAULT_PARAMS };            // s0 = s1 = 1
+  const xd = p.d1 + p.d2 + p.d3, xe = xd + p.d5;
+  const h0 = p.d4 / 2, h1 = h0 + p.d5 * Math.tan(p.theta1 * Math.PI / 180);
+  approx(halfHeightAt(p, xd), h0, 1e-9, 'entry');
+  approx(halfHeightAt(p, xe), h1, 1e-9, 'exit');
+  approx(halfHeightAt(p, xd + p.d5 / 4), h0 + 0.25 * (h1 - h0), 1e-9, 'straight is linear');
+  const pS = { ...p, s0: 0, s1: 0 };          // Bell-Mehta S-curve
+  approx(halfHeightAt(pS, xd), h0, 1e-9);
+  approx(halfHeightAt(pS, xe), h1, 1e-9);
+  const gQuarter = (halfHeightAt(pS, xd + p.d5 / 4) - h0) / (h1 - h0);
+  ok(gQuarter < 0.15, `S-curve expands slowly at entry (g=${gQuarter})`);
+  approx((halfHeightAt(pS, xd + p.d5 / 2) - h0) / (h1 - h0), 0.5, 1e-9, 'S-curve symmetric');
+});
+
+test('curved diffuser mask stays connected and inside caps', () => {
+  for (const [s0, s1] of [[0, 0], [0, 1.5], [1.5, 0], [1.5, 1.5]]) {
+    const g = buildMask({ ...DEFAULT_PARAMS, s0, s1 }, 1.0);
+    ok(g.ok && g.meta.connected, `s0=${s0} s1=${s1}`);
+  }
+});
+
+test('vane position and length move the vanes', () => {
+  const near = buildMask({ ...DEFAULT_PARAMS, vanePos: 20 }, 1.0);
+  const far = buildMask({ ...DEFAULT_PARAMS, vanePos: 150 }, 1.0);
+  ok(near.ok && far.ok && near.meta.connected && far.meta.connected);
+  let differ = false;
+  for (let i = 0; i < near.mask.length; i++)
+    if ((near.mask[i] === 0) !== (far.mask[i] === 0)) { differ = true; break; }
+  ok(differ, 'masks differ when vanes move');
+  const long = buildMask({ ...DEFAULT_PARAMS, vanePos: 20, vaneLen: 50 }, 1.0);
+  let fLong = 0, fShort = 0;
+  for (let i = 0; i < long.mask.length; i++) { if (long.mask[i] !== 0) fLong++; if (near.mask[i] !== 0) fShort++; }
+  ok(fLong < fShort, 'longer vanes remove more fluid');
+});
+
+test('clampParams keeps vanes inside the channel', () => {
+  const q = clampParams({ ...DEFAULT_PARAMS, vanePos: 500, vaneLen: 40 });
+  ok(q.vanePos + q.vaneLen <= q.d5 + q.d6 + 1e-9, `vanePos=${q.vanePos}`);
+  ok(q.vanePos >= 0);
+});

@@ -123,7 +123,27 @@ Browser-side behavior (sliders, rendering, tabs) is verified interactively.
    impulsive-start pressure wave.
 5. Total-length cap includes d₁: `d1+d2+d3+d5+d6 ≤ 228.6 mm`.
 
-## 9. Out of scope (for now)
+## 9. Extension: curved diffuser + vane placement (approved 2026-09-01)
+
+Four new design variables (all optimizable, straight/legacy behavior recovered
+at defaults):
+
+1. **Curved diffuser walls — quintic with two end-slope factors.** The wall
+   half-height is `h(ξ) = d4/2 + Δh·g(ξ)`, ξ ∈ [0,1] along d5, where g is the
+   unique 5th-order polynomial satisfying g(0)=0, g(1)=1, g''(0)=g''(1)=0,
+   g'(0)=s0, g'(1)=s1 (slopes as fractions of the straight-wall slope).
+   `s0=s1=1` → straight wall (today's geometry, exactly); `s0=s1=0` → the
+   Bell–Mehta S-curve. Endpoints are unchanged, so the exit-height cap and all
+   constraint logic are untouched; g is clamped to [0,1] so the wall never
+   bulges past the exit height or pinches below the throat. Bounds: s0, s1 ∈
+   [0, 1.5].
+2. **Vane chord `vaneLen`** (mm), bounds [5, 60], default 15 (legacy value).
+3. **Vane position `vanePos`** (mm): distance from the diffuser entrance to the
+   vane leading edge, bounds [0, d5+d6−vaneLen], default d5 (legacy exit-plane
+   placement). Vanes are distributed across the *local* channel height at the
+   vane-center station and are clipped to the fluid region automatically.
+
+## 10. Out of scope (for now)
 
 - 3D effects, turbulence-resolved simulation, thermal effects.
 - Per-vane individual angles (all vanes share ±θ₂; symmetric about centerline).

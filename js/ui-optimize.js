@@ -5,7 +5,9 @@ const OPTIMIZABLE = [
   { key: 'd2', lo: 6, hi: 40 }, { key: 'd3', lo: 5, hi: 60 }, { key: 'd4', lo: 8, hi: 40 },
   { key: 'd5', lo: 40, hi: 200 }, { key: 'd6', lo: 8, hi: 60 },
   { key: 'theta1', lo: 3, hi: 40 }, { key: 'theta2', lo: 0, hi: 45 },
+  { key: 's0', lo: 0, hi: 1.5 }, { key: 's1', lo: 0, hi: 1.5 },
   { key: 'nVanes', lo: 0, hi: 10 },
+  { key: 'vaneLen', lo: 5, hi: 60 }, { key: 'vanePos', lo: 0, hi: 235 },
 ];
 const OPT_DX = 1.5;   // coarse grid for objective evaluations
 

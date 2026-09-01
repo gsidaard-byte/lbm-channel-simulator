@@ -5,6 +5,9 @@ export const SOLID = 0, FLUID = 1, INLET = 2, OUTLET = 3;
 export const DEFAULT_PARAMS = {
   d1: 12.7, d2: 15, d3: 20, d4: 20, d5: 150, d6: 25,
   theta1: 25, theta2: 15, nVanes: 6,
+  s0: 1, s1: 1,          // diffuser wall end-slope factors (1,1 = straight)
+  vaneLen: 15,           // vane chord [mm]
+  vanePos: 150,          // diffuser entrance -> vane leading edge [mm]
 };
 
 const rad = (deg) => deg * Math.PI / 180;
@@ -44,7 +47,31 @@ export function clampParams(p) {
   }
   if (derived(q).totalLen > CAPS.totalLenMM)
     q.d6 = Math.max(5, q.d6 - (derived(q).totalLen - CAPS.totalLenMM));
+  if (q.vaneLen != null && q.vanePos != null) {
+    q.vaneLen = Math.min(q.vaneLen, q.d5 + q.d6 - 2);
+    q.vanePos = Math.max(0, Math.min(q.vanePos, q.d5 + q.d6 - q.vaneLen));
+  }
   return q;
+}
+
+// Quintic wall-shape function: g(0)=0, g(1)=1, g''(0)=g''(1)=0, g'(0)=s0,
+// g'(1)=s1 (slopes as fractions of the straight-wall slope). s0=s1=1 -> g=xi
+// (straight); s0=s1=0 -> Bell-Mehta S-curve 10xi^3-15xi^4+6xi^5. Clamped to
+// [0,1] so the wall never bulges past the exit height or below the throat.
+function quinticG(xi, s0, s1) {
+  const A = 1 - s0, B = s1 - s0;
+  const c3 = 10 * A - 4 * B, c4 = 7 * B - 15 * A, c5 = 6 * A - 3 * B;
+  const g = s0 * xi + c3 * xi ** 3 + c4 * xi ** 4 + c5 * xi ** 5;
+  return Math.min(1, Math.max(0, g));
+}
+
+// Channel half-height at streamwise station xmm (valid from the throat on).
+export function halfHeightAt(p, xmm) {
+  const xd = p.d1 + p.d2 + p.d3, xe = xd + p.d5;
+  const h0 = p.d4 / 2, h1 = h0 + p.d5 * Math.tan(p.theta1 * Math.PI / 180);
+  if (xmm <= xd) return h0;
+  if (xmm >= xe) return h1;
+  return h0 + (h1 - h0) * quinticG((xmm - xd) / p.d5, p.s0 ?? 1, p.s1 ?? 1);
 }
 
 const smooth = (t) => t * t * (3 - 2 * t); // smoothstep
@@ -74,15 +101,18 @@ export function buildMask(p, dxMM, margin = 2, bufferW = 18) {
   if (Cy < 2 * dxMM) return { ok: false, error: 'duct does not fit (increase exit height or reduce d2/d4)' };
   const Cx = p.d1 + p.d2;
   const xt = p.d1 + p.d2, xd = xt + p.d3, xe = xd + p.d5, xEnd = xe + p.d6;
-  const t1 = Math.tan(p.theta1 * Math.PI / 180);
   const th2 = p.theta2 * Math.PI / 180;
   const N = p.nVanes | 0;
-  const Lv = Math.min(0.8 * p.d6, 15), halfC = Lv / 2;
+  const Lv = p.vaneLen ?? Math.min(0.8 * p.d6, 15), halfC = Lv / 2;
   const vaneTh = Math.max(1.0, 2.2 * dxMM) / 2;
-  const xv = xe + halfC + dxMM;         // vane center plane
+  // vane leading edge sits vanePos downstream of the diffuser entrance,
+  // clamped so the vane fits inside diffuser + exit section
+  const dv = Math.max(0, Math.min(p.vanePos ?? p.d5, p.d5 + p.d6 - Lv));
+  const xv = xd + dv + halfC * Math.cos(th2);   // vane center station
+  const Hloc = halfHeightAt(p, xv);             // local channel half-height there
   const vanes = [];
   for (let j = 1; j <= N; j++) {
-    const o = der.exitHeight * (j / (N + 1) - 0.5);
+    const o = 2 * Hloc * (j / (N + 1) - 0.5);
     const dirY = Math.sign(o) * Math.sin(th2), dirX = Math.cos(th2);
     vanes.push([xv - halfC * dirX, yc + o - halfC * dirY, xv + halfC * dirX, yc + o + halfC * dirY]);
   }
@@ -99,7 +129,7 @@ export function buildMask(p, dxMM, margin = 2, bufferW = 18) {
     }
     const dy = Math.abs(y - yc);
     if (x >= xt && x <= xd && dy <= p.d4 / 2) return true;                        // throat
-    if (x >= xd && x <= xe && dy <= p.d4 / 2 + (x - xd) * t1) return true;        // diffuser
+    if (x >= xd && x <= xe && dy <= halfHeightAt(p, x)) return true;              // diffuser (quintic wall)
     if (x >= xe && x <= xEnd + (bufferW + 2) * dxMM && dy <= der.exitHeight / 2)
       return true;                                                                // exit + numerical buffer
     return false;

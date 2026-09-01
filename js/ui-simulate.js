@@ -11,7 +11,11 @@ const SLIDERS = [
   { key: 'd6', label: 'd₆ mm', min: 8, max: 60, step: 0.5 },
   { key: 'theta1', label: 'θ₁ °', min: 3, max: 40, step: 0.25 },
   { key: 'theta2', label: 'θ₂ °', min: 0, max: 45, step: 0.25 },
+  { key: 's0', label: 's₀ wall', min: 0, max: 1.5, step: 0.05 },
+  { key: 's1', label: 's₁ wall', min: 0, max: 1.5, step: 0.05 },
   { key: 'nVanes', label: 'vanes', min: 0, max: 10, step: 1 },
+  { key: 'vaneLen', label: 'Lv mm', min: 5, max: 60, step: 1 },
+  { key: 'vanePos', label: 'xv mm', min: 0, max: 255, step: 1 },
 ];
 const RES = { coarse: 1.0, medium: 0.5, fine: 0.35 };
 
