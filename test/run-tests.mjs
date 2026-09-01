@@ -2,7 +2,13 @@ import { tests } from './harness.mjs';
 const mods = ['./units.test.mjs', './geometry.test.mjs', './lbm.test.mjs', './optimizer.test.mjs'];
 for (const m of mods) {
   try { await import(m); }
-  catch (e) { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; }
+  catch (e) {
+    // Only skip test files that don't exist yet; a missing import INSIDE a
+    // test file is a real failure.
+    const missing = String(e.message).split(' imported from')[0];
+    if (e.code === 'ERR_MODULE_NOT_FOUND' && missing.includes(m.slice(2))) continue;
+    throw e;
+  }
 }
 let fail = 0;
 for (const t of tests) {
