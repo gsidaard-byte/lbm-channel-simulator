@@ -18,6 +18,9 @@ export const ADV_DEFAULTS = {
   sc1g: 3, sc2g: 3,        // plate slot (gap) widths [mm]
   sc2fit: true,            // screen 2: fit an integer number of equal slots
                            // wall-to-wall (half-ribs attach to both walls)
+  // near-throat conditioning plates (screen ladder), off by default:
+  sc3x: 8, sc3s: 0, sc3g: 3,     // just after the throat
+  sc4x: 55, sc4s: 0, sc4g: 4,    // mid-expansion
 };
 
 const D1 = 12.7, D2 = 15;  // inlet width and bend length (fixed hardware)
@@ -33,9 +36,9 @@ export function advClamp(p) {
     q[ck] = Math.min(60, Math.max(8, q[ck]));
     q[xk] = Math.min(span - q[ck] - 3, Math.max(3, q[xk]));
   }
-  for (const k of ['sc1x', 'sc2x']) q[k] = Math.min(span - 8, Math.max(5, q[k]));
-  for (const k of ['sc1s', 'sc2s']) q[k] = Math.min(0.9, Math.max(0, q[k]));
-  for (const k of ['sc1g', 'sc2g']) q[k] = Math.min(8, Math.max(2, q[k]));
+  for (const k of ['sc1x', 'sc2x', 'sc3x', 'sc4x']) q[k] = Math.min(span - 8, Math.max(3, q[k]));
+  for (const k of ['sc1s', 'sc2s', 'sc3s', 'sc4s']) q[k] = Math.min(0.9, Math.max(0, q[k]));
+  for (const k of ['sc1g', 'sc2g', 'sc3g', 'sc4g']) q[k] = Math.min(8, Math.max(2, q[k]));
   if (q.scrMode !== 'porous') q.scrMode = 'plate';
   q.sc2fit = q.sc2fit !== false;
   q.bendVanes = Math.min(4, Math.max(0, Math.round(q.bendVanes)));
@@ -134,6 +137,8 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
   const screens = [
     { xs: xd + p.sc1x, sol: p.sc1s, gap: p.sc1g, phase: 0, fit: false },
     { xs: xd + p.sc2x, sol: p.sc2s, gap: p.sc2g, phase: 0.5, fit: p.sc2fit },
+    { xs: xd + p.sc3x, sol: p.sc3s ?? 0, gap: p.sc3g ?? 3, phase: 0.25, fit: false },
+    { xs: xd + p.sc4x, sol: p.sc4s ?? 0, gap: p.sc4g ?? 4, phase: 0.75, fit: false },
   ].filter(s => s.sol > 0).map(s => {
     const out = { ...s, asPlate: p.scrMode === 'plate' && s.gap >= 2.5 * dxMM && s.sol > 0.05,
                   pitch: s.gap / Math.max(0.1, 1 - s.sol) };

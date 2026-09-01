@@ -158,3 +158,23 @@ test('advanced: screen-2 uniform fit gives equal slots wall to wall', () => {
   ok(Math.max(...unfitted) - Math.min(...unfitted) > 1,
      `unfitted pattern has unequal edge slots (${Math.min(...unfitted)}..${Math.max(...unfitted)})`);
 });
+
+test('advanced: four-screen ladder builds and stays connected', () => {
+  const p = { ...ADV_DEFAULTS, scrMode: 'plate',
+              sc3s: 0.4, sc3x: 8, sc3g: 3, sc4s: 0.4, sc4x: 55, sc4g: 4 };
+  const g = buildMaskAdvanced(p, 0.5);
+  ok(g.ok && g.meta.connected, 'connected through 4 plates');
+  // solid ribs must now exist near the throat (expansion entrance)
+  const dx = 0.5, base = 12.7 + 15 + ADV_DEFAULTS.tl;
+  const col = Math.round((base + 8 + 1 + g.margin * dx) / dx - 0.5);
+  let ribs = 0, fluid = 0;
+  for (let gy = 0; gy < g.ny; gy++) {
+    const c = g.mask[gy * g.nx + col];
+    if (c === 0) ribs++; else fluid++;
+  }
+  ok(ribs > 5 && fluid > 10, `throat plate present (ribs ${ribs}, slots ${fluid})`);
+  const off = buildMaskAdvanced({ ...ADV_DEFAULTS, scrMode: 'plate' }, 0.5);
+  let ribsOff = 0;
+  for (let gy = 0; gy < off.ny; gy++) if (off.mask[gy * off.nx + col] === 0) ribsOff++;
+  ok(ribsOff === 0 || ribsOff < ribs, 'sc3 off by default');
+});

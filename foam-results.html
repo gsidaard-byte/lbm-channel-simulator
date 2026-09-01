@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>RANS Optimization Results · 60 g/s · Re 4724</title>
+<style>
+body { font: 14px/1.5 system-ui; background: #14161a; color: #e8e8e8; margin: 20px; max-width: 980px; }
+h1 { font-size: 19px; } h2 { font-size: 15px; color: #9ab; margin-top: 26px; }
+table { border-collapse: collapse; margin: 10px 0; }
+td, th { border: 1px solid #333; padding: 5px 12px; text-align: right; }
+th { color: #9ab; font-weight: 600; }
+.good { color: #6f6; } .bad { color: #f88; } .dim { color: #9ab; }
+canvas { background: #0c0d10; border-radius: 6px; }
+.note { color: #9ab; font-size: 13px; max-width: 860px; }
+code { background: #22252c; padding: 1px 5px; border-radius: 4px; }
+</style></head><body>
+<h1>OpenFOAM RANS optimization — advanced channel, 60 g/s (Re 4724)</h1>
+<p class="note">Nelder–Mead over 30 k-ω SST solves at the true Reynolds number.
+Free variables: screen 1 solidity/position, screen 2 solidity/position, row-2 vane count.
+Objective: exit-plane std/mean of streamwise velocity (lower = more uniform).</p>
+
+<h2>Headline numbers</h2>
+<table>
+<tr><th>Configuration</th><th>Mesh</th><th>Exit uniformity</th></tr>
+<tr><td>Baseline (LBM web app, Re grid-capped)</td><td>1.0 mm</td><td>0.86 <span class="dim">(optimistic)</span></td></tr>
+<tr><td>Baseline, RANS true Re</td><td>1.0 mm</td><td>0.227</td></tr>
+<tr><td>Baseline, RANS true Re (averaged)</td><td>0.5 mm</td><td class="bad">0.039</td></tr>
+<tr><td><b>Optimized</b>, RANS (optimization mesh)</td><td>1.0 mm</td><td class="good">0.390&nbsp;&nbsp;<span class="dim">+72%</span></td></tr>
+<tr><td><b>Optimized</b>, RANS confirmation (averaged)</td><td>0.5 mm</td><td class="bad">≈ 0.00 — gain did not survive refinement</td></tr>
+</table>
+
+<h2>Best parameters found (coarse mesh)</h2>
+<table>
+<tr><th>sc1 σ</th><th>sc1 x</th><th>sc2 σ</th><th>sc2 x</th><th>row-2 vanes</th></tr>
+<tr><td>0.643</td><td>137.9 mm</td><td>0.332</td><td>195 mm</td><td>8</td></tr>
+</table>
+<p class="note">Pattern the optimizer discovered: stronger first plate pulled upstream (closer
+behind the vane rows), weaker second plate pushed to the exit plane. Physically sensible —
+but insufficient once the jet is properly resolved.</p>
+
+<h2>Convergence — every evaluation</h2>
+<canvas id="conv" width="940" height="330"></canvas>
+<p class="note">Blue dots: each RANS evaluation. Orange line: best-so-far.
+Note the scatter — nearly identical parameter sets scoring 0.39 vs 0.17 —
+a sign the flow sits at the edge of unsteadiness and the coarse-mesh objective is noisy.</p>
+
+<h2>Conclusion</h2>
+<p class="note">The two-plate architecture cannot be <i>tuned</i> into taming the Re-4724 jet:
+searched with a real solver, the resolved-scale flow still punches through
+(see the flow-field views). Next steps are structural: a third plate close behind
+the vane cascade, a deeper jet-splitting cascade, or the coat-hanger header
+distributor — and optimization runs at the confirmation mesh (overnight budget).</p>
+
+<script>
+const H = [
+[1,0.2274],[2,0.0893],[3,0],[4,0.1047],[5,0.2746],[6,0.2714],[7,0.1862],[8,0.1157],
+[9,0.3277],[10,0.0046],[11,0.2859],[12,0.0471],[13,0.2677],[14,0.2723],[15,0.2158],
+[16,0.2865],[17,0.3874],[18,0.2006],[19,0.1237],[20,0.2496],[21,0.1792],[22,0.0827],
+[23,0.247],[24,0.2716],[25,0.3393],[26,0.1403],[27,0.1175],[28,0.25],[29,0.348],[30,0.3905],[31,0.1699]];
+const cv = document.getElementById('conv'), ctx = cv.getContext('2d');
+const ML=44, MB=28, PW=cv.width-ML-14, PH=cv.height-MB-12;
+const sx = e => ML + (e-1)/30*PW, sy = u => 12 + (1-u/0.45)*PH;
+ctx.strokeStyle='#3a3f48'; ctx.strokeRect(ML+.5,12.5,PW,PH);
+ctx.fillStyle='#9ab'; ctx.font='11px system-ui'; ctx.textAlign='right';
+for (let u=0; u<=0.45; u+=0.1) {
+  ctx.strokeStyle='#23262d'; ctx.beginPath(); ctx.moveTo(ML,sy(u)); ctx.lineTo(ML+PW,sy(u)); ctx.stroke();
+  ctx.fillText(u.toFixed(1), ML-6, sy(u)+4);
+}
+ctx.textAlign='center';
+for (let e=5; e<=30; e+=5) ctx.fillText(e, sx(e), cv.height-10);
+ctx.fillText('evaluation', ML+PW/2, cv.height-0.5+0); ctx.fillText('', 0,0);
+ctx.save(); ctx.translate(12, 12+PH/2); ctx.rotate(-Math.PI/2); ctx.fillText('uniformity', 0, 0); ctx.restore();
+let best=0; ctx.strokeStyle='#f0a050'; ctx.lineWidth=2; ctx.beginPath();
+H.forEach(([e,u],i)=>{ best=Math.max(best,u); i?ctx.lineTo(sx(e),sy(best)):ctx.moveTo(sx(e),sy(best)); });
+ctx.stroke(); ctx.lineWidth=1;
+ctx.fillStyle='#6ab0ff';
+for (const [e,u] of H) { ctx.beginPath(); ctx.arc(sx(e),sy(u),3.5,0,7); ctx.fill(); }
+</script>
+</body></html>

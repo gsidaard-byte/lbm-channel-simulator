@@ -17,6 +17,12 @@ const SLIDERS = [
   { key: 'r2n', label: 'row2 n', min: 0, max: 16, step: 1 },
   { key: 'r2x', label: 'row2 x', min: 3, max: 180, step: 1 },
   { key: 'r2c', label: 'row2 c', min: 8, max: 60, step: 1 },
+  { key: 'sc3x', label: 'scr3 x', min: 3, max: 195, step: 1 },
+  { key: 'sc3s', label: 'scr3 σ', min: 0, max: 0.9, step: 0.05 },
+  { key: 'sc3g', label: 'scr3 slot', min: 2, max: 8, step: 0.5 },
+  { key: 'sc4x', label: 'scr4 x', min: 3, max: 195, step: 1 },
+  { key: 'sc4s', label: 'scr4 σ', min: 0, max: 0.9, step: 0.05 },
+  { key: 'sc4g', label: 'scr4 slot', min: 2, max: 8, step: 0.5 },
   { key: 'sc1x', label: 'scr1 x', min: 5, max: 195, step: 1 },
   { key: 'sc1s', label: 'scr1 σ', min: 0, max: 0.9, step: 0.05 },
   { key: 'sc1g', label: 'scr1 slot', min: 2, max: 8, step: 0.5 },
@@ -153,7 +159,9 @@ function updateReadouts() {
       const slot = fit ? pitch * (1 - s) : g;
       return `slot ${slot.toFixed(1)}/rib ${(pitch - slot).toFixed(1)}${fit ? ' (fit)' : ''}`;
     };
-    ribs = ` · print: scr1 ${dims(params.sc1s, params.sc1g, false)}` +
+    ribs = ` · print: scr3 ${dims(params.sc3s, params.sc3g, false)}` +
+           ` · scr4 ${dims(params.sc4s, params.sc4g, false)}` +
+           ` · scr1 ${dims(params.sc1s, params.sc1g, false)}` +
            ` · scr2 ${dims(params.sc2s, params.sc2g, params.sc2fit)} mm`;
   }
   document.getElementById('adv-readout').textContent =
