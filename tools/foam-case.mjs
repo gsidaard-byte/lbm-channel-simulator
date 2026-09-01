@@ -28,7 +28,7 @@ const args = Object.fromEntries(process.argv.slice(2).join(' ')
 
 if (args.uniformity) {
   // parse a raw sample line file: columns y Ux Uy Uz; score = 1 - std/mean of Ux
-  const rows = readFileSync(args.uniformity[0] ?? args.uniformity, 'utf8')
+  const rows = readFileSync(args.uniformity, 'utf8')
     .split('\n').map(l => l.trim().split(/\s+/).map(Number))
     .filter(r => r.length >= 4 && r.every(Number.isFinite));
   const ux = rows.map(r => r[1]);
@@ -193,8 +193,10 @@ writeFileSync(join(out, '0org', 'nut'),
      'type calculated; value uniform 0;',
      'type nutUSpaldingWallFunction; value uniform 0;'));
 
-// exit-plane sampling line (at the physical exit, upstream of the buffer)
+// exit-plane sampling line (at the physical exit, upstream of the buffer).
+// NOTE: sample coordinates are in mesh units AFTER convertToMeters, i.e. meters.
 const xProbe = (g.meta.probeCol + 0.5) * dxMM;
+const M = (v) => (v * 1e-3).toExponential(8);
 writeFileSync(join(out, 'system', 'sample'), hdr('dictionary', 'system', 'sample') + `
 type sets;
 libs (sampling);
@@ -203,7 +205,7 @@ setFormat raw;
 fields (U);
 sets
 (
-    exitLine { type lineUniform; axis y; start (${xProbe} 0 ${dz / 2}); end (${xProbe} ${Ly} ${dz / 2}); nPoints 800; }
+    exitLine { type uniform; axis y; start (${M(xProbe)} 0 ${M(dz / 2)}); end (${M(xProbe)} ${M(Ly)} ${M(dz / 2)}); nPoints 800; }
 );
 `);
 
