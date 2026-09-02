@@ -21,6 +21,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ADV_DEFAULTS, advClamp, buildMaskAdvanced } from '../js/geometry-adv.js';
+import { CH_DEFAULTS, chClamp, buildMaskCoathanger } from '../js/geometry-ch.js';
 import { RHO, NU, inletVelocity } from '../js/units.js';
 
 const args = Object.fromEntries(process.argv.slice(2).join(' ')
@@ -59,9 +60,11 @@ const endTime = parseInt(args.endTime) || 4000;        // SIMPLE iterations
 const depthM = 0.0127;
 
 // optional geometry overrides: --params '{"sc1s":0.8,...}'
+// --design coathanger selects the manifold-distributor topology
 const overrides = args.params ? JSON.parse(args.params) : {};
-const p = advClamp({ ...ADV_DEFAULTS, scrMode: 'plate', ...overrides });
-const g = buildMaskAdvanced(p, dxMM);
+const g = args.design === 'coathanger'
+  ? buildMaskCoathanger(chClamp({ ...CH_DEFAULTS, ...overrides }), dxMM)
+  : buildMaskAdvanced(advClamp({ ...ADV_DEFAULTS, scrMode: 'plate', ...overrides }), dxMM);
 if (!g.ok || !g.meta.connected) { console.error('geometry failed:', g.error); process.exit(1); }
 const { nx, ny, mask, margin } = g;
 
