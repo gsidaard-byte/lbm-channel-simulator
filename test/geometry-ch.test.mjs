@@ -62,3 +62,19 @@ test('coathanger: clamp keeps geometry buildable at extremes', () => {
     ok(g.ok && g.meta.connected, JSON.stringify(over));
   }
 });
+
+test('coathanger: impingement baffle blanks the land opposite the feed', () => {
+  const g = buildMaskCoathanger({ ...CH_DEFAULTS, bafH: 36 }, 0.5);
+  ok(g.ok && g.meta.connected);
+  const dx = 0.5;
+  const col = Math.round((CH_DEFAULTS.xh + 1 + g.margin * dx) / dx - 0.5);
+  const solidAt = (ymm) => g.mask[Math.round(ymm / dx - 0.5) * g.nx + col] === 0;
+  // fully solid across the baffle height at the centerline
+  let allSolid = true;
+  for (let o = -16; o <= 16; o += 2) if (!solidAt(g.yc + o)) allSolid = false;
+  ok(allSolid, 'land blanked over the baffle span');
+  // but slots still exist away from center
+  let fluidAway = 0;
+  for (let o = 30; o <= 90; o += 1) if (!solidAt(g.yc + o)) fluidAway++;
+  ok(fluidAway > 4, `slots open away from the baffle (${fluidAway})`);
+});

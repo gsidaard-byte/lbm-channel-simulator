@@ -20,6 +20,8 @@ export const CH_DEFAULTS = {
   sp_s: 0.3,       // optional settling plate solidity (0 = off)
   sp_x: 12,        // settling plate offset downstream of the land [mm]
   sp_g: 4,         // settling plate slot width [mm]
+  bafH: 0,         // impingement baffle: blank the land over this height at
+                   // the centerline so the feed turns into the arms (0 = off)
 };
 
 export function chClamp(p) {
@@ -35,6 +37,7 @@ export function chClamp(p) {
   q.sp_s = Math.min(0.6, Math.max(0, q.sp_s));
   q.sp_x = Math.min(CAPS.totalLenMM - q.xh - 10, Math.max(5, q.sp_x));
   q.sp_g = Math.min(8, Math.max(2, q.sp_g));
+  q.bafH = Math.min(80, Math.max(0, q.bafH));
   return q;
 }
 
@@ -92,7 +95,8 @@ export function buildMaskCoathanger(params, dxMM, margin = 2, bufferW = 18) {
       const c = gy * nx + gx;
       mask[c] = FLUID;
       if (xmm >= p.xh && xmm < p.xh + plateTh) {                             // land
-        if (landAsPlate) { if (ribAt(ymm, yc, H2, p.landG, p.landS)) mask[c] = SOLID; }
+        if (p.bafH > 0 && Math.abs(ymm - yc) <= p.bafH / 2) mask[c] = SOLID; // baffle
+        else if (landAsPlate) { if (ribAt(ymm, yc, H2, p.landG, p.landS)) mask[c] = SOLID; }
         else porous[c] = p.landS;
       } else if (spOn && xmm >= xSp && xmm < xSp + plateTh) {                // settling plate
         if (spAsPlate) { if (ribAt(ymm + 1.7, yc, H2, p.sp_g, p.sp_s)) mask[c] = SOLID; }
