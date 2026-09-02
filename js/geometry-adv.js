@@ -21,6 +21,19 @@ export const ADV_DEFAULTS = {
   // near-throat conditioning plates (screen ladder), off by default:
   sc3x: 8, sc3s: 0, sc3g: 3,     // just after the throat
   sc4x: 55, sc4s: 0, sc4g: 4,    // mid-expansion
+  // feed style: 'bend' (single 90-degree turn) or 'serp' (down, U-turn, up -
+  // the two opposing turns cancel the inlet's Coanda bias)
+  feed: 'bend',
+  serpDrop: 45,                  // U-turn depth below the centerline [mm]
+  serpR: 6, serpR2: 8,           // U-turn / recovery-turn fillet radii [mm]
+  // slotted V-chevron distributor inside the expansion (0 = off):
+  vRows: 0,                      // 1 = one V pair, 2 = nested pair
+  vAx: 22,                       // apex position from the expansion entrance [mm]
+  vTx: 108,                      // arm tip station [mm]
+  vTyF: 0.72,                    // tip height as a fraction of local half-height
+  vS: 0.6,                       // solid fraction along the arm (slotted)
+  vP: 12,                        // slot pitch along the arm [mm]
+  vNest: 22,                     // apex offset of the nested inner V [mm]
 };
 
 const D1 = 12.7, D2 = 15;  // inlet width and bend length (fixed hardware)
@@ -29,7 +42,19 @@ export function advClamp(p) {
   const q = { ...ADV_DEFAULTS, ...p };
   q.th = Math.min(40, Math.max(8, q.th));
   q.tl = Math.min(40, Math.max(5, q.tl));
-  const budget = CAPS.totalLenMM - (D1 + D2 + q.tl);
+  q.feed = q.feed === 'serp' ? 'serp' : 'bend';
+  q.serpDrop = Math.min(75, Math.max(20, q.serpDrop ?? 45));
+  q.serpR = Math.min(10, Math.max(4, q.serpR ?? 6));
+  q.serpR2 = Math.min(14, Math.max(6, q.serpR2 ?? 8));
+  q.vRows = Math.min(2, Math.max(0, Math.round(q.vRows ?? 0)));
+  q.vAx = Math.min(80, Math.max(5, q.vAx ?? 22));
+  q.vTx = Math.min(190, Math.max(q.vAx + 30, q.vTx ?? 108));
+  q.vTyF = Math.min(0.9, Math.max(0.3, q.vTyF ?? 0.72));
+  q.vS = Math.min(0.9, Math.max(0.2, q.vS ?? 0.6));
+  q.vP = Math.min(25, Math.max(6, q.vP ?? 12));
+  q.vNest = Math.min(40, Math.max(8, q.vNest ?? 22));
+  const feedLen = q.feed === 'serp' ? 2 * D1 + 2 * q.serpR + q.serpR2 : D1 + D2;
+  const budget = CAPS.totalLenMM - (feedLen + q.tl);
   q.Lexp = Math.min(budget - 12, Math.max(50, q.Lexp));
   const span = budget;                        // vanes/screens live in expansion+exit
   for (const [xk, ck] of [['r1x', 'r1c'], ['r2x', 'r2c']]) {
@@ -53,8 +78,13 @@ export function advClamp(p) {
 export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
   const p = advClamp(params);
   const H2 = CAPS.exitHeightMM / 2, h0 = p.th / 2;
-  const xt = D1 + D2, xd = xt + p.tl, xe = xd + p.Lexp, xEnd = CAPS.totalLenMM;
-  const H = Math.max(CAPS.exitHeightMM + 2 * margin * dxMM, 2 * (h0 + D2 + 10));
+  const serp = p.feed === 'serp';
+  const uR = p.serpR, r2b = p.serpR2;
+  const xt = serp ? 2 * D1 + 2 * uR + r2b : D1 + D2;
+  const xd = xt + p.tl, xe = xd + p.Lexp, xEnd = CAPS.totalLenMM;
+  const H = Math.max(CAPS.exitHeightMM + 2 * margin * dxMM,
+    2 * (h0 + D2 + 10),
+    serp ? 2 * (p.serpDrop + uR + D1 + 3) : 0);
   const nx = Math.ceil(xEnd / dxMM) + margin + bufferW;
   const ny = Math.ceil(H / dxMM);
   const yc = (ny * dxMM) / 2;
@@ -79,7 +109,7 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
   // (narrower passages both under-resolve the flow and accelerate it past the
   // stable lattice velocity)
   const maxCount = (width) => Math.max(0, Math.floor(width / (3.5 * dxMM + 2 * vaneTh)) - 1);
-  const nBend = Math.min(p.bendVanes, maxCount(p.th));
+  const nBend = serp ? 0 : Math.min(p.bendVanes, maxCount(p.th));
   for (let k = 1; k <= nBend; k++) {                // concentric bend arcs
     const fk = k / (nBend + 1), pts = [];
     for (let m = 0; m <= 14; m++) {
@@ -107,6 +137,37 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
       addPoly(pts);
     }
   }
+  // slotted V-chevron distributor: mirrored curved arms from a centerline apex
+  // sweeping outward toward the exit corners; slotted along their arc length
+  // (solid fraction vS at pitch vP) so pressure equalizes across passages.
+  if ((p.vRows | 0) > 0) {
+    const addSlottedCurve = (P0, P1, P2) => {
+      const N = 72, pts = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, u = 1 - t;
+        pts.push([u * u * P0[0] + 2 * u * t * P1[0] + t * t * P2[0],
+                  u * u * P0[1] + 2 * u * t * P1[1] + t * t * P2[1]]);
+      }
+      let s = 0, cur = [pts[0]];
+      for (let i = 1; i <= N; i++) {
+        s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+        if ((s % p.vP) < p.vS * p.vP) cur.push(pts[i]);
+        else { if (cur.length > 1) addPoly(cur); cur = [pts[i]]; }
+      }
+      if (cur.length > 1) addPoly(cur);
+    };
+    const mkV = (ax, tx, tyF) => {
+      const x0 = xd + ax, x1 = Math.min(xd + tx, xEnd - 6);
+      const ty = tyF * hAt(x1);
+      for (const sgn of [1, -1]) {
+        addSlottedCurve([x0, yc],
+          [x0 + 0.55 * (x1 - x0), yc + sgn * 0.22 * ty],
+          [x1, yc + sgn * ty]);
+      }
+    };
+    mkV(p.vAx, p.vTx, p.vTyF);
+    if ((p.vRows | 0) >= 2) mkV(p.vAx + p.vNest, p.vTx - 8, p.vTyF * 0.55);
+  }
   const nearVane = (x, y) => {
     for (const { pts, bb } of polys) {
       if (x < bb[0] - vaneTh || x > bb[2] + vaneTh || y < bb[1] - vaneTh || y > bb[3] + vaneTh) continue;
@@ -116,12 +177,32 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
     return false;
   };
 
+  // serpentine feed geometry (down leg -> U-turn -> up leg -> turn into throat)
+  const yU = yc + p.serpDrop;
+  const C1x = D1 + uR, x2a = D1 + 2 * uR;
+  const C2x = x2a + D1 + r2b, C2y = yc + h0 + r2b;
+  const roTurn2 = (a) => (D1 + r2b) + smooth(a) * ((r2b + p.th) - (D1 + r2b));
+
   const isFluid = (x, y) => {
-    if (x >= 0 && x <= D1 && y >= 0 && y <= Cy) return true;                    // duct
-    if (x <= Cx && y >= Cy) {                                                   // bend
-      const r = Math.hypot(x - Cx, y - Cy);
-      const a = Math.atan2(y - Cy, Cx - x) / (Math.PI / 2);
-      if (a >= 0 && a <= 1 && r >= D2 && r <= roTurn(a)) return true;
+    if (serp) {
+      if (x >= 0 && x <= D1 && y >= 0 && y <= yU) return true;                  // down leg
+      if (y >= yU) {                                                            // U-turn
+        const r = Math.hypot(x - C1x, y - yU);
+        if (r >= uR && r <= uR + D1) return true;
+      }
+      if (x >= x2a && x <= x2a + D1 && y >= C2y && y <= yU) return true;        // up leg
+      if (x <= C2x && y <= C2y && y >= yc - h0 - 2) {                           // turn to throat
+        const r = Math.hypot(x - C2x, y - C2y);
+        const a = Math.atan2(C2y - y, C2x - x) / (Math.PI / 2);
+        if (a >= 0 && a <= 1 && r >= r2b && r <= roTurn2(a)) return true;
+      }
+    } else {
+      if (x >= 0 && x <= D1 && y >= 0 && y <= Cy) return true;                  // duct
+      if (x <= Cx && y >= Cy) {                                                 // bend
+        const r = Math.hypot(x - Cx, y - Cy);
+        const a = Math.atan2(y - Cy, Cx - x) / (Math.PI / 2);
+        if (a >= 0 && a <= 1 && r >= D2 && r <= roTurn(a)) return true;
+      }
     }
     const dy = Math.abs(y - yc);
     if (x >= xt && x <= xe && dy <= hAt(x)) return true;                        // throat + expansion

@@ -178,3 +178,38 @@ test('advanced: four-screen ladder builds and stays connected', () => {
   for (let gy = 0; gy < off.ny; gy++) if (off.mask[gy * off.nx + col] === 0) ribsOff++;
   ok(ribsOff === 0 || ribsOff < ribs, 'sc3 off by default');
 });
+
+test('hybrid: serpentine feed builds, dips below centerline, stays connected', () => {
+  const g = buildMaskAdvanced({ ...ADV_DEFAULTS, feed: 'serp' }, 1.0);
+  ok(g.ok && g.meta.connected, 'serpentine connected');
+  const dx = 1.0;
+  const at = (xmm, ymm) =>
+    g.mask[Math.round(ymm / dx - 0.5) * g.nx + Math.round((xmm + g.margin * dx) / dx - 0.5)];
+  ok(at(6, g.yc + 30) !== 0, 'descending leg passes below centerline');
+  const gb = buildMaskAdvanced({ ...ADV_DEFAULTS, feed: 'bend' }, 1.0);
+  const atB = (xmm, ymm) =>
+    gb.mask[Math.round(ymm / dx - 0.5) * gb.nx + Math.round((xmm + gb.margin * dx) / dx - 0.5)];
+  ok(atB(6, gb.yc + 30) === 0, 'bend feed has no fluid below centerline at far left');
+});
+
+test('hybrid: slotted V-chevron adds interrupted vanes inside the expansion', () => {
+  const base = { ...ADV_DEFAULTS, scrMode: 'plate' };
+  const g0 = buildMaskAdvanced({ ...base, vRows: 0 }, 0.5);
+  const g1 = buildMaskAdvanced({ ...base, vRows: 1, vS: 0.6 }, 0.5);
+  const g2 = buildMaskAdvanced({ ...base, vRows: 2, vS: 0.6 }, 0.5);
+  ok(g1.ok && g1.meta.connected && g2.ok && g2.meta.connected);
+  const solids = (g) => { let n = 0; for (const v of g.mask) if (v === 0) n++; return n; };
+  ok(solids(g1) > solids(g0), 'one V adds solid cells');
+  ok(solids(g2) > solids(g1), 'second nested V adds more');
+  // slotting: lower solidity removes solid cells along the V
+  const g1lo = buildMaskAdvanced({ ...base, vRows: 1, vS: 0.35 }, 0.5);
+  ok(solids(g1lo) < solids(g1), 'lower vS means more gaps along the arms');
+});
+
+test('hybrid: full ladder-A + serpentine + 2-row V is buildable', () => {
+  const p = advClamp({ ...ADV_DEFAULTS, feed: 'serp', vRows: 2, vS: 0.6,
+    sc3s: 0.4, sc3x: 8, sc3g: 3, sc4s: 0.4, sc4x: 55, sc4g: 4,
+    sc1s: 0.5, sc1x: 110, sc2s: 0.33, sc2x: 195 });
+  const g = buildMaskAdvanced(p, 0.5);
+  ok(g.ok && g.meta.connected, 'hybrid buildable and connected');
+});
