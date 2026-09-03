@@ -266,13 +266,14 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
     const i = gy * nx + (nx - 1);
     if (mask[i] === FLUID) mask[i] = OUTLET;
   }
-  // BFS connectivity (porous cells are fluid)
+  // full flood fill from the inlet: determines connectivity AND removes
+  // isolated fluid pockets (they make the RANS pressure matrix singular)
   const seen = new Uint8Array(nx * ny), q = [];
   for (let gx = 0; gx < nx; gx++) if (mask[gx] === INLET) { q.push(gx); seen[gx] = 1; }
   let connected = false;
   while (q.length) {
     const i = q.pop(), gx = i % nx, gy = (i / nx) | 0;
-    if (mask[i] === OUTLET) { connected = true; break; }
+    if (mask[i] === OUTLET) connected = true;
     for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const tx = gx + ox, ty = gy + oy;
       if (tx < 0 || tx >= nx || ty < 0 || ty >= ny) continue;
@@ -280,6 +281,8 @@ export function buildMaskAdvanced(params, dxMM, margin = 2, bufferW = 18) {
       if (!seen[j] && mask[j] !== SOLID) { seen[j] = 1; q.push(j); }
     }
   }
+  for (let i = 0; i < nx * ny; i++)
+    if (mask[i] !== SOLID && !seen[i]) { mask[i] = SOLID; porous[i] = 0; }
   const probeCol = Math.min(nx - 3, margin + Math.round(xEnd / dxMM) - 1);
   return { ok: true, mask, porous, nx, ny, dx: dxMM, yc, margin,
            meta: { connected, exitHeight: CAPS.exitHeightMM, totalLen: CAPS.totalLenMM,

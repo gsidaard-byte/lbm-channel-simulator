@@ -213,3 +213,26 @@ test('hybrid: full ladder-A + serpentine + 2-row V is buildable', () => {
   const g = buildMaskAdvanced(p, 0.5);
   ok(g.ok && g.meta.connected, 'hybrid buildable and connected');
 });
+
+test('hybrid: no isolated fluid cells (every fluid cell reachable from inlet)', () => {
+  const p = advClamp({ ...ADV_DEFAULTS, feed: 'serp', vRows: 2, vS: 0.6,
+    sc3s: 0.4, sc3x: 8, sc3g: 3, sc4s: 0.4, sc4x: 55, sc4g: 4,
+    sc1s: 0.5, sc1x: 110, sc2s: 0.33, sc2x: 195 });
+  const g = buildMaskAdvanced(p, 0.5);
+  ok(g.ok && g.meta.connected);
+  const { nx, ny, mask } = g;
+  const seen = new Uint8Array(nx * ny), q = [];
+  for (let gx = 0; gx < nx; gx++) if (mask[gx] === 2) { q.push(gx); seen[gx] = 1; }
+  while (q.length) {
+    const i = q.pop(), gx = i % nx, gy = (i / nx) | 0;
+    for (const [ox, oy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const tx = gx + ox, ty = gy + oy;
+      if (tx < 0 || tx >= nx || ty < 0 || ty >= ny) continue;
+      const j = ty * nx + tx;
+      if (!seen[j] && mask[j] !== 0) { seen[j] = 1; q.push(j); }
+    }
+  }
+  let orphans = 0;
+  for (let i = 0; i < nx * ny; i++) if (mask[i] !== 0 && !seen[i]) orphans++;
+  ok(orphans === 0, `isolated fluid cells: ${orphans}`);
+});
